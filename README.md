@@ -7,8 +7,6 @@ Headless Excel workbook engine for Node.js — powered by [SpreadJS](https://dev
 - **Full Excel fidelity** — 500+ formula functions, charts, pivot tables, tables, cell styling, merging, number formatting
 - **XLSX I/O** — read and write `.xlsx` files with full roundtrip support
 - **JSON serialization** — `toJSON()` / `fromJSON()` preserves everything (formulas, styles, charts, pivots)
-- **Zero config** — DOM shims auto-installed, just call `init()`
-- **Direct SpreadJS access** — full API available via `GC` namespace and `wb.spread`
 
 ## System Dependencies
 
@@ -93,6 +91,12 @@ Initialize the headless runtime. Must be called before creating Workbooks.
 ### `dispose()`
 
 Close the happy-dom window to prevent memory leaks. Call when done with all workbooks.
+
+## Concurrency
+
+`headless-spreadjs` installs DOM shims on `globalThis` (e.g. `window`, `document`, `navigator`), so a single Node.js process supports **one `init()` / `dispose()` lifecycle at a time**. You cannot safely run multiple workbook operations concurrently within the same process.
+
+If you need parallelism, use separate processes (e.g. worker threads or child processes) — each gets its own global scope so the shims don't collide.
 
 ## Docker
 

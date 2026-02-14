@@ -20,7 +20,8 @@
     "dev": "tsc --watch",
     "lint": "biome check",
     "fmt": "biome check --write",
-    "test": "node --test dist/test",
+    "test": "vitest run --maxWorkers=1",
+    "test:watch": "vitest --maxWorkers=1",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -47,13 +48,15 @@
     "@mescius/spread-sheets-shapes": ">=18.0.0",
     "@mescius/spread-sheets-slicers": ">=18.0.0",
     "canvas": "^3.1.0",
+    "fflate": "^0.8.2",
     "happy-dom": "^16.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.15",
     "@types/node": "^22.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18"
