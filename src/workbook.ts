@@ -131,6 +131,7 @@ export class Workbook {
     return saveAsBuffer(this.spread, getGC());
   }
 
+
   toJSON(): object {
     return this.spread.toJSON();
   }

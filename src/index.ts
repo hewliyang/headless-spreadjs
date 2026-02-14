@@ -23,6 +23,9 @@ export interface InitResult {
 const optionalAddons = [
   "@mescius/spread-sheets-charts",
   "@mescius/spread-sheets-pivot-addon",
+  "@mescius/spread-sheets-shapes",
+  "@mescius/spread-sheets-slicers",
+
 ] as const;
 
 let initialized = false;

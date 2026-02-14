@@ -20,6 +20,12 @@ importers:
       '@mescius/spread-sheets-pivot-addon':
         specifier: '>=18.0.0'
         version: 19.0.4
+      '@mescius/spread-sheets-shapes':
+        specifier: '>=18.0.0'
+        version: 19.0.4
+      '@mescius/spread-sheets-slicers':
+        specifier: '>=18.0.0'
+        version: 19.0.4
       canvas:
         specifier: ^3.1.0
         version: 3.2.1
@@ -262,6 +268,9 @@ packages:
 
   '@mescius/spread-sheets-shapes@19.0.4':
     resolution: {integrity: sha512-gdHTZ0x08sEXJaiPNtZSeBrkDWKqbHyByQqE2DS6WC+F0ry1msmCPUZo/IE0x04DgUu/mXYe4aGRBUq0tSCaog==}
+
+  '@mescius/spread-sheets-slicers@19.0.4':
+    resolution: {integrity: sha512-9v2n8pAr1c6dhXi2VrWbDR3OwYTaVWjXhxAflsYy3jU0xtSY6xxkGBu4isep5Hjmhsmkts1TpiDCJlmX2wbJTA==}
 
   '@mescius/spread-sheets@19.0.4':
     resolution: {integrity: sha512-7pn9K8EcpwPxGDK9EXDtA7MqzXOSx6iJe28nrfgUAcyYQi3EHm4FDHozNhf5YhS+JwUG90kzL0yvgOX/S1xJKQ==}
@@ -568,6 +577,11 @@ snapshots:
   '@mescius/spread-sheets-shapes@19.0.4':
     dependencies:
       '@mescius/spread-sheets': 19.0.4
+
+  '@mescius/spread-sheets-slicers@19.0.4':
+    dependencies:
+      '@mescius/spread-sheets': 19.0.4
+      '@mescius/spread-sheets-shapes': 19.0.4
 
   '@mescius/spread-sheets@19.0.4': {}
 
