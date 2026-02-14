@@ -39,9 +39,10 @@ describe("lifecycle", () => {
     installShims();
     assert.equal(isShimInstalled(), true);
 
-    const currentWindow = globalThis.window;
+    const g = globalThis as Record<string, unknown>;
+    const currentWindow = g.window;
     installShims();
-    assert.strictEqual(globalThis.window, currentWindow);
+    assert.strictEqual(g.window, currentWindow);
 
     const blob = new Blob(["hello world"], { type: "text/plain" });
 
