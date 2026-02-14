@@ -1,9 +1,9 @@
 import { init } from "headless-spreadjs";
 
-const { Workbook, GC, dispose } = await init();
-const wb = new Workbook();
+const { ExcelFile, GC, dispose } = await init();
+const file = new ExcelFile();
 
-const sheet = wb.getActiveSheet();
+const sheet = file.workbook.getActiveSheet();
 sheet.name("Sparklines");
 
 const headers = [
@@ -114,7 +114,7 @@ for (let row = 1; row <= reps.length; row++) {
   sheet.setRowHeight(row, 30);
 }
 
-await wb.save("examples/output/sparklines.xlsx");
+await file.save("examples/output/sparklines.xlsx");
 console.log("Saved examples/output/sparklines.xlsx");
 
 dispose();

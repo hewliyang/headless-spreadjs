@@ -1,9 +1,9 @@
 import { init } from "headless-spreadjs";
 
-const { Workbook, GC, dispose } = await init();
-const wb = new Workbook();
+const { ExcelFile, GC, dispose } = await init();
+const file = new ExcelFile();
 
-const sheet = wb.getActiveSheet();
+const sheet = file.workbook.getActiveSheet();
 sheet.name("Sales Data");
 
 // Build a data table
@@ -76,7 +76,7 @@ sheet.setColumnWidth(1, 90);
 sheet.setColumnWidth(2, 80);
 sheet.setColumnWidth(3, 100);
 
-await wb.save("examples/output/slicers.xlsx");
+await file.save("examples/output/slicers.xlsx");
 console.log("Saved examples/output/slicers.xlsx");
 
 dispose();

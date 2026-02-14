@@ -147,53 +147,34 @@ export function setGC(gc: GCNamespace | null): void {
   gcRef = gc;
 }
 
-export class Workbook {
-  public readonly spread: SpreadWorkbook;
+export class ExcelFile {
+  public readonly workbook: SpreadWorkbook;
 
-  constructor(spread?: SpreadWorkbook) {
+  constructor(workbook?: SpreadWorkbook) {
     const gc = getGC();
-    this.spread = spread ?? new gc.Spread.Sheets.Workbook();
+    this.workbook = workbook ?? new gc.Spread.Sheets.Workbook();
   }
 
   batch<T>(fn: () => T): T;
   batch<T>(fn: () => Promise<T>): Promise<T>;
   batch<T>(fn: () => T | Promise<T>): T | Promise<T> {
-    this.spread.suspendCalcService(false);
+    this.workbook.suspendCalcService(false);
 
     try {
       const result = fn();
 
       if (result instanceof Promise) {
         return result.finally(() => {
-          this.spread.resumeCalcService(true);
+          this.workbook.resumeCalcService(true);
         });
       }
 
-      this.spread.resumeCalcService(true);
+      this.workbook.resumeCalcService(true);
       return result;
     } catch (error) {
-      this.spread.resumeCalcService(true);
+      this.workbook.resumeCalcService(true);
       throw error;
     }
-  }
-
-  getActiveSheet(): SpreadWorksheet {
-    return this.spread.getActiveSheet();
-  }
-
-  getSheet(index: number): SpreadWorksheet {
-    return this.spread.getSheet(index);
-  }
-
-  getSheetCount(): number {
-    return this.spread.getSheetCount();
-  }
-
-  addSheet(name: string, index?: number): SpreadWorksheet {
-    const gc = getGC();
-    const sheet = new gc.Spread.Sheets.Worksheet(name);
-    this.spread.addSheet(index ?? this.spread.getSheetCount(), sheet);
-    return sheet;
   }
 
   async save(filePath: string): Promise<void> {
@@ -208,28 +189,27 @@ export class Workbook {
   }
 
   saveToBuffer(): Promise<Buffer> {
-    return saveAsBuffer(this.spread, getGC());
+    return saveAsBuffer(this.workbook, getGC());
   }
 
-
   toJSON(): object {
-    return this.spread.toJSON();
+    return this.workbook.toJSON();
   }
 
   fromJSON(json: object): void {
-    this.spread.fromJSON(json);
+    this.workbook.fromJSON(json);
   }
 
-  static async open(filePath: string): Promise<Workbook> {
+  static async open(filePath: string): Promise<ExcelFile> {
     const gc = getGC();
     const bytes = await fs.promises.readFile(filePath);
     const spread = await importWorkbook(toArrayBuffer(bytes), gc);
-    return new Workbook(spread);
+    return new ExcelFile(spread);
   }
 
-  static async openFromBuffer(buffer: Buffer): Promise<Workbook> {
+  static async openFromBuffer(buffer: Buffer): Promise<ExcelFile> {
     const gc = getGC();
     const spread = await importWorkbook(toArrayBuffer(buffer), gc);
-    return new Workbook(spread);
+    return new ExcelFile(spread);
   }
 }

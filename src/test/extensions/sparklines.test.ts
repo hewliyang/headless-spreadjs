@@ -4,9 +4,9 @@ import { withRuntime } from "../helpers.js";
 
 describe("sparklines extension", () => {
   it("roundtrips sparkline through XLSX", async () => {
-    await withRuntime(async ({ Workbook, GC }) => {
-      const wb = new Workbook();
-      const sheet = wb.getActiveSheet();
+    await withRuntime(async ({ ExcelFile, GC }) => {
+      const wb = new ExcelFile();
+      const sheet = wb.workbook.getActiveSheet();
       assert.ok(sheet);
 
       sheet.setValue(0, 0, 4);
@@ -24,8 +24,8 @@ describe("sparklines extension", () => {
         settings,
       );
 
-      const reopened = await Workbook.openFromBuffer(await wb.saveToBuffer());
-      const restoredSheet = reopened.getActiveSheet();
+      const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
+      const restoredSheet = reopened.workbook.getActiveSheet();
       assert.ok(restoredSheet);
 
       const sparkline = restoredSheet.getSparkline(1, 0);

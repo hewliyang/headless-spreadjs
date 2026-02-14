@@ -4,9 +4,9 @@ import { withRuntime } from "../helpers.js";
 
 describe("shapes extension", () => {
   it("roundtrips shape through XLSX", async () => {
-    await withRuntime(async ({ Workbook, GC }) => {
-      const wb = new Workbook();
-      const sheet = wb.getActiveSheet();
+    await withRuntime(async ({ ExcelFile, GC }) => {
+      const wb = new ExcelFile();
+      const sheet = wb.workbook.getActiveSheet();
       assert.ok(sheet);
 
       const shape = sheet.shapes.add(
@@ -19,8 +19,8 @@ describe("shapes extension", () => {
       );
       shape.text("Headless shape");
 
-      const reopened = await Workbook.openFromBuffer(await wb.saveToBuffer());
-      const restoredShape = reopened.getActiveSheet().shapes.get("StatusShape");
+      const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
+      const restoredShape = reopened.workbook.getActiveSheet().shapes.get("StatusShape");
 
       assert.ok(restoredShape);
       assert.equal(restoredShape.text(), "Headless shape");

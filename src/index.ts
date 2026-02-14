@@ -1,6 +1,6 @@
+import { ExcelFile, setGC } from "./excel-file.js";
 import { disposeShims, installShims } from "./shims.js";
 import type { GCNamespace } from "./types.js";
-import { setGC, Workbook } from "./workbook.js";
 
 export type {
   GCNamespace,
@@ -8,7 +8,7 @@ export type {
   SpreadWorkbook,
   SpreadWorksheet,
 } from "./types.js";
-export { Workbook } from "./workbook.js";
+export { ExcelFile } from "./excel-file.js";
 
 export interface InitOptions {
   licenseKey?: string;
@@ -16,7 +16,7 @@ export interface InitOptions {
 
 export interface InitResult {
   GC: GCNamespace;
-  Workbook: typeof Workbook;
+  ExcelFile: typeof ExcelFile;
   dispose: () => void;
 }
 
@@ -41,7 +41,7 @@ async function importOptional(moduleName: (typeof optionalAddons)[number]) {
 
 export async function init(options?: InitOptions): Promise<InitResult> {
   if (initialized && cachedGC) {
-    return { GC: cachedGC, Workbook, dispose };
+    return { GC: cachedGC, ExcelFile, dispose };
   }
 
   installShims();
@@ -60,7 +60,7 @@ export async function init(options?: InitOptions): Promise<InitResult> {
   cachedGC = gc;
   initialized = true;
 
-  return { GC: gc, Workbook, dispose };
+  return { GC: gc, ExcelFile, dispose };
 }
 
 export function dispose(): void {

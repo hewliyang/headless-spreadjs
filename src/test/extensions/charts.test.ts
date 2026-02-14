@@ -4,9 +4,9 @@ import { withRuntime } from "../helpers.js";
 
 describe("charts extension", () => {
   it("roundtrips chart through XLSX", async () => {
-    await withRuntime(async ({ Workbook, GC }) => {
-      const wb = new Workbook();
-      const sheet = wb.getActiveSheet();
+    await withRuntime(async ({ ExcelFile, GC }) => {
+      const wb = new ExcelFile();
+      const sheet = wb.workbook.getActiveSheet();
       assert.ok(sheet);
 
       sheet.setValue(0, 0, "Month");
@@ -28,8 +28,8 @@ describe("charts extension", () => {
         "A1:B4",
       );
 
-      const reopened = await Workbook.openFromBuffer(await wb.saveToBuffer());
-      const restoredSheet = reopened.getActiveSheet();
+      const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
+      const restoredSheet = reopened.workbook.getActiveSheet();
       assert.ok(restoredSheet);
 
       assert.equal(restoredSheet.charts.all().length, 1);

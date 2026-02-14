@@ -4,9 +4,9 @@ import { withRuntime } from "../helpers.js";
 
 describe("slicers extension", () => {
   it("roundtrips slicer and table through XLSX", async () => {
-    await withRuntime(async ({ Workbook, GC }) => {
-      const wb = new Workbook();
-      const sheet = wb.getActiveSheet();
+    await withRuntime(async ({ ExcelFile, GC }) => {
+      const wb = new ExcelFile();
+      const sheet = wb.workbook.getActiveSheet();
       assert.ok(sheet);
 
       sheet.setValue(0, 0, "Region");
@@ -26,8 +26,8 @@ describe("slicers extension", () => {
       );
       sheet.slicers.add("RegionSlicer", "SalesTable", "Region");
 
-      const reopened = await Workbook.openFromBuffer(await wb.saveToBuffer());
-      const restoredSheet = reopened.getActiveSheet();
+      const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
+      const restoredSheet = reopened.workbook.getActiveSheet();
       assert.ok(restoredSheet);
 
       assert.equal(restoredSheet.tables.all().length, 1);

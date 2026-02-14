@@ -4,9 +4,9 @@ import { withRuntime } from "../helpers.js";
 
 describe("pivot extension", () => {
   it("roundtrips pivot through XLSX and JSON", async () => {
-    await withRuntime(async ({ Workbook, GC }) => {
-      const wb = new Workbook();
-      const dataSheet = wb.getActiveSheet();
+    await withRuntime(async ({ ExcelFile, GC }) => {
+      const wb = new ExcelFile();
+      const dataSheet = wb.workbook.getActiveSheet();
       assert.ok(dataSheet);
       dataSheet.name("Sales Data");
 
@@ -26,7 +26,8 @@ describe("pivot extension", () => {
       dataSheet.setValue(4, 1, "Q2");
       dataSheet.setValue(4, 2, 16);
 
-      const pivotSheet = wb.addSheet("Pivot");
+      const pivotSheet = new GC.Spread.Sheets.Worksheet("Pivot");
+      wb.workbook.addSheet(wb.workbook.getSheetCount(), pivotSheet);
       const pivot = pivotSheet.pivotTables.add(
         "SalesPivot",
         "'Sales Data'!A1:C5",
@@ -51,8 +52,8 @@ describe("pivot extension", () => {
         GC.Spread.Pivot.PivotTableFieldType.valueField,
       );
 
-      const reopened = await Workbook.openFromBuffer(await wb.saveToBuffer());
-      const restoredPivotSheet = reopened.getSheet(1);
+      const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
+      const restoredPivotSheet = reopened.workbook.getSheet(1);
       assert.equal(restoredPivotSheet.pivotTables.all().length, 1);
 
       const restoredPivot = restoredPivotSheet.pivotTables.all()[0];
@@ -60,9 +61,9 @@ describe("pivot extension", () => {
       assert.match(restoredPivot.getSource(), /Sales Data/);
 
       const json = wb.toJSON();
-      const fromJson = new Workbook();
+      const fromJson = new ExcelFile();
       fromJson.fromJSON(json);
-      assert.equal(fromJson.getSheet(1).pivotTables.all().length, 1);
+      assert.equal(fromJson.workbook.getSheet(1).pivotTables.all().length, 1);
     });
   });
 });

@@ -1,9 +1,9 @@
 import { init } from "headless-spreadjs";
 
-const { Workbook, GC, dispose } = await init();
-const wb = new Workbook();
+const { ExcelFile, GC, dispose } = await init();
+const file = new ExcelFile();
 
-const sheet = wb.getActiveSheet();
+const sheet = file.workbook.getActiveSheet();
 sheet.name("Chart Data");
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
@@ -56,7 +56,8 @@ const lineChart = sheet.charts.add(
 );
 lineChart.title({ text: "Online Revenue Trend" });
 
-const pieSheet = wb.addSheet("Market Share");
+const pieSheet = new GC.Spread.Sheets.Worksheet("Market Share");
+file.workbook.addSheet(file.workbook.getSheetCount(), pieSheet);
 pieSheet.setValue(0, 0, "Channel");
 pieSheet.setValue(0, 1, "Total");
 pieSheet.setValue(1, 0, "Online");
@@ -79,7 +80,7 @@ pieChart.legend({
   position: GC.Spread.Sheets.Charts.LegendPosition.right,
 });
 
-await wb.save("examples/output/charts.xlsx");
+await file.save("examples/output/charts.xlsx");
 console.log("Saved examples/output/charts.xlsx");
 
 dispose();

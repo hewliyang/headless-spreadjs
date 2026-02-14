@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { dispose, init, Workbook } from "../index.js";
+import { dispose, init, ExcelFile } from "../index.js";
 import { disposeShims, installShims, isShimInstalled } from "../shims.js";
 import { readWithFileReader } from "./helpers.js";
 
 describe("lifecycle", () => {
-  it("Workbook requires init()", () => {
+  it("ExcelFile requires init()", () => {
     dispose();
     assert.throws(
-      () => new Workbook(),
+      () => new ExcelFile(),
       /headless-spreadjs not initialized\. Call init\(\) first\./,
     );
   });
@@ -20,7 +20,7 @@ describe("lifecycle", () => {
       const second = await init();
 
       assert.strictEqual(first.GC, second.GC);
-      assert.strictEqual(first.Workbook, second.Workbook);
+      assert.strictEqual(first.ExcelFile, second.ExcelFile);
 
       assert.ok(first.GC.Spread.Sheets.Charts?.ChartType);
       assert.ok(first.GC.Spread.Pivot?.PivotTableFieldType);

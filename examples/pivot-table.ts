@@ -1,9 +1,9 @@
 import { init } from "headless-spreadjs";
 
-const { Workbook, GC, dispose } = await init();
-const wb = new Workbook();
+const { ExcelFile, GC, dispose } = await init();
+const file = new ExcelFile();
 
-const dataSheet = wb.getActiveSheet();
+const dataSheet = file.workbook.getActiveSheet();
 dataSheet.name("Sales Data");
 
 const headers = ["Region", "Product", "Quarter", "Sales", "Units"];
@@ -44,7 +44,8 @@ for (let r = 1; r <= records.length; r++) {
   dataSheet.setColumnWidth(col, width);
 });
 
-const pivotSheet = wb.addSheet("Pivot Analysis");
+const pivotSheet = new GC.Spread.Sheets.Worksheet("Pivot Analysis");
+file.workbook.addSheet(file.workbook.getSheetCount(), pivotSheet);
 const dataRange = `'Sales Data'!A1:E${records.length + 1}`;
 
 const pivotTable = pivotSheet.pivotTables.add(
@@ -81,14 +82,14 @@ pivotTable.add(
   GC.Spread.Pivot.PivotTableFieldType.valueField,
 );
 
-const json = wb.toJSON();
-const wb2 = new Workbook();
-wb2.fromJSON(json);
+const json = file.toJSON();
+const file2 = new ExcelFile();
+file2.fromJSON(json);
 console.log(
-  `JSON roundtrip: pivot table count = ${wb2.getSheet(1).pivotTables.all().length}`,
+  `JSON roundtrip: pivot table count = ${file2.workbook.getSheet(1).pivotTables.all().length}`,
 );
 
-await wb.save("examples/output/pivot-table.xlsx");
+await file.save("examples/output/pivot-table.xlsx");
 console.log("Saved examples/output/pivot-table.xlsx");
 
 dispose();

@@ -31,11 +31,11 @@ import { init } from "headless-spreadjs";
 
 // Initialize (with optional SpreadJS license key)
 // If you use this for commercial purposes, please get a license from the madlads!
-const { Workbook, GC, dispose } = await init({ licenseKey: "xxx" });
+const { ExcelFile, GC, dispose } = await init({ licenseKey: "xxx" });
 
 // Create a workbook from scratch
-const wb = new Workbook();
-const sheet = wb.getActiveSheet();
+const file = new ExcelFile();
+const sheet = file.workbook.getActiveSheet();
 sheet.setValue(0, 0, "Name");
 sheet.setValue(0, 1, "Score");
 sheet.setValue(1, 0, "Alice");
@@ -44,15 +44,15 @@ sheet.setValue(2, 0, "Bob");
 sheet.setValue(2, 1, 87);
 sheet.setValue(3, 0, "Average");
 sheet.setFormula(3, 1, "AVERAGE(B2:B3)");
-await wb.save("output.xlsx");
+await file.save("output.xlsx");
 
 // Open an existing workbook
-const wb2 = await Workbook.open("input.xlsx");
-const val = wb2.getActiveSheet().getValue(0, 0);
+const file2 = await ExcelFile.open("input.xlsx");
+const val = file2.workbook.getActiveSheet().getValue(0, 0);
 console.log(val);
 
 // Access raw SpreadJS API
-const spread = wb.spread; // GC.Spread.Sheets.Workbook instance
+const workbook = file.workbook; // GC.Spread.Sheets.Workbook instance
 
 // Clean up when done
 dispose();
@@ -60,30 +60,27 @@ dispose();
 
 ## API
 
-### `init(options?): { GC, Workbook, dispose }`
+### `init(options?): { GC, ExcelFile, dispose }`
 
-Initialize the headless runtime. Must be called before creating Workbooks.
+Initialize the headless runtime. Must be called before creating ExcelFiles.
 
 | Option       | Type      | Description                                |
 | ------------ | --------- | ------------------------------------------ |
 | `licenseKey` | `string?` | SpreadJS license key. Omit for trial mode. |
 
-### `Workbook`
+### `ExcelFile`
 
-| Method                         | Description                                   |
-| ------------------------------ | --------------------------------------------- |
-| `new Workbook()`               | Create an empty workbook                      |
-| `Workbook.open(path)`          | Open an xlsx file → `Promise<Workbook>`       |
-| `Workbook.openFromBuffer(buf)` | Open xlsx from a Buffer → `Promise<Workbook>` |
-| `wb.save(path)`                | Save to xlsx file → `Promise<void>`           |
-| `wb.saveToBuffer()`            | Save to Buffer → `Promise<Buffer>`            |
-| `wb.toJSON()`                  | Serialize to SpreadJS JSON                    |
-| `wb.fromJSON(json)`            | Load from SpreadJS JSON                       |
-| `wb.getActiveSheet()`          | Get active worksheet                          |
-| `wb.getSheet(index)`           | Get worksheet by index                        |
-| `wb.getSheetCount()`           | Get number of sheets                          |
-| `wb.addSheet(name, index?)`    | Add a new worksheet                           |
-| `wb.spread`                    | Raw `GC.Spread.Sheets.Workbook` instance      |
+| Method                              | Description                                    |
+| ----------------------------------- | ---------------------------------------------- |
+| `new ExcelFile()`                   | Create an empty workbook                       |
+| `ExcelFile.open(path)`              | Open an xlsx file → `Promise<ExcelFile>`       |
+| `ExcelFile.openFromBuffer(buf)`     | Open xlsx from a Buffer → `Promise<ExcelFile>` |
+| `file.save(path)`                   | Save to xlsx file → `Promise<void>`            |
+| `file.saveToBuffer()`               | Save to Buffer → `Promise<Buffer>`             |
+| `file.toJSON()`                     | Serialize to SpreadJS JSON                     |
+| `file.fromJSON(json)`               | Load from SpreadJS JSON                        |
+| `file.batch(fn)`                    | Suspend calc during `fn`, resume after         |
+| `file.workbook`                     | Raw `GC.Spread.Sheets.Workbook` instance       |
 
 ### `dispose()`
 

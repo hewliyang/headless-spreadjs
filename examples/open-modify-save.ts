@@ -1,11 +1,11 @@
 import { init } from "headless-spreadjs";
 
-const { Workbook, dispose } = await init();
+const { ExcelFile, dispose } = await init();
 
-const wb = await Workbook.open("examples/output/basics.xlsx");
-const sheet = wb.getActiveSheet();
+const file = await ExcelFile.open("examples/output/basics.xlsx");
+const sheet = file.workbook.getActiveSheet();
 
-console.log(`Opened workbook with ${wb.getSheetCount()} sheets`);
+console.log(`Opened workbook with ${file.workbook.getSheetCount()} sheets`);
 console.log(`Active sheet: "${sheet.name()}"`);
 
 console.log("\nCurrent data:");
@@ -43,14 +43,14 @@ sheet.setFormatter(averageRow, 3, "$#,##0.00");
 sheet.setValue(10, 0, "Last modified");
 sheet.setValue(10, 1, new Date().toISOString().split("T")[0]);
 
-const json = wb.toJSON();
-const wb2 = new Workbook();
-wb2.fromJSON(json);
+const json = file.toJSON();
+const file2 = new ExcelFile();
+file2.fromJSON(json);
 console.log(
-  `\nJSON roundtrip check: "${wb2.getActiveSheet().getValue(newRow, 0)}"`,
+  `\nJSON roundtrip check: "${file2.workbook.getActiveSheet().getValue(newRow, 0)}"`,
 );
 
-await wb.save("examples/output/modified.xlsx");
+await file.save("examples/output/modified.xlsx");
 console.log("Saved examples/output/modified.xlsx");
 
 dispose();
