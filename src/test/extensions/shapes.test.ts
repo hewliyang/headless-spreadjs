@@ -20,7 +20,9 @@ describe("shapes extension", () => {
       shape.text("Headless shape");
 
       const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
-      const restoredShape = reopened.workbook.getActiveSheet().shapes.get("StatusShape");
+      const restoredShape = reopened.workbook
+        .getActiveSheet()
+        .shapes.get("StatusShape");
 
       assert.ok(restoredShape);
       assert.equal(restoredShape.text(), "Headless shape");

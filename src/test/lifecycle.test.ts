@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { dispose, init, ExcelFile } from "../index.js";
+import { dispose, ExcelFile, init } from "../index.js";
 import { disposeShims, installShims, isShimInstalled } from "../shims.js";
 import { readWithFileReader } from "./helpers.js";
 

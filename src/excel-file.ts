@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { unzipSync, zipSync, type Unzipped } from "fflate";
-import type { GCNamespace, SpreadWorkbook, SpreadWorksheet } from "./types.js";
+import { type Unzipped, unzipSync, zipSync } from "fflate";
+import type { GCNamespace, SpreadWorkbook } from "./types.js";
 
 let gcRef: GCNamespace | null = null;
 
@@ -70,7 +70,7 @@ function stripEvalSheetFromZip(buf: Buffer): Buffer {
   if (relMatch) {
     const targetMatch = /Target="([^"]+)"/.exec(relMatch[0]);
     if (targetMatch) {
-      sheetPath = "xl/" + targetMatch[1];
+      sheetPath = `xl/${targetMatch[1]}`;
     }
   }
 
@@ -80,7 +80,7 @@ function stripEvalSheetFromZip(buf: Buffer): Buffer {
   let newCtXml: string | null = null;
   if (ctBytes && sheetPath) {
     const ctXml = decoder.decode(ctBytes);
-    const partName = "/" + sheetPath;
+    const partName = `/${sheetPath}`;
     const overrideRe = new RegExp(
       `<Override[^>]*PartName="${partName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*/>`,
       "g",

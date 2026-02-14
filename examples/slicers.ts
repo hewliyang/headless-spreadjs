@@ -61,11 +61,7 @@ regionSlicer.height(200);
 regionSlicer.style(GC.Spread.Sheets.Slicers.SlicerStyles.light1());
 
 // Add a slicer for the Product column
-const productSlicer = sheet.slicers.add(
-  "ProductSlicer",
-  tableName,
-  "Product",
-);
+const productSlicer = sheet.slicers.add("ProductSlicer", tableName, "Product");
 productSlicer.position(new GC.Spread.Sheets.Point(550, 10));
 productSlicer.width(180);
 productSlicer.height(150);

@@ -65,13 +65,19 @@ describe("workbook core", () => {
         const fromBuffer = await ExcelFile.openFromBuffer(
           await fromFile.saveToBuffer(),
         );
-        assert.equal(fromBuffer.workbook.getActiveSheet().getValue(2, 0), "Bob");
+        assert.equal(
+          fromBuffer.workbook.getActiveSheet().getValue(2, 0),
+          "Bob",
+        );
         assert.equal(fromBuffer.workbook.getActiveSheet().getValue(3, 1), 10);
 
         // JSON roundtrip
         const fromJson = new ExcelFile();
         fromJson.fromJSON(fromBuffer.toJSON());
-        assert.equal(fromJson.workbook.getActiveSheet().getValue(1, 0), "Alice");
+        assert.equal(
+          fromJson.workbook.getActiveSheet().getValue(1, 0),
+          "Alice",
+        );
         assert.equal(fromJson.workbook.getActiveSheet().getValue(3, 1), 10);
       });
     });
@@ -117,7 +123,10 @@ describe("workbook core", () => {
 
       const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
       assert.equal(reopened.workbook.getSheet(1).getValue(0, 0), 30);
-      assert.match(reopened.workbook.getSheet(1).getFormula(0, 0), /SUM\(Data!A1:A2\)/);
+      assert.match(
+        reopened.workbook.getSheet(1).getFormula(0, 0),
+        /SUM\(Data!A1:A2\)/,
+      );
     });
   });
 
@@ -197,7 +206,9 @@ describe("workbook core", () => {
 
   it("openFromBuffer() rejects for invalid XLSX", async () => {
     await withRuntime(async ({ ExcelFile }) => {
-      await assert.rejects(ExcelFile.openFromBuffer(Buffer.from("not-an-xlsx")));
+      await assert.rejects(
+        ExcelFile.openFromBuffer(Buffer.from("not-an-xlsx")),
+      );
     });
   });
 
@@ -211,8 +222,9 @@ describe("workbook core", () => {
       wb.workbook.addSheet(wb.workbook.getSheetCount(), tailSheet);
 
       const reopened = await ExcelFile.openFromBuffer(await wb.saveToBuffer());
-      const names = Array.from({ length: reopened.workbook.getSheetCount() }, (_, i) =>
-        reopened.workbook.getSheet(i).name(),
+      const names = Array.from(
+        { length: reopened.workbook.getSheetCount() },
+        (_, i) => reopened.workbook.getSheet(i).name(),
       );
 
       assert.equal(names.includes("Evaluation Version"), false);

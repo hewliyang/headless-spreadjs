@@ -2,13 +2,13 @@ import { ExcelFile, setGC } from "./excel-file.js";
 import { disposeShims, installShims } from "./shims.js";
 import type { GCNamespace } from "./types.js";
 
+export { ExcelFile } from "./excel-file.js";
 export type {
   GCNamespace,
   SpreadStyle,
   SpreadWorkbook,
   SpreadWorksheet,
 } from "./types.js";
-export { ExcelFile } from "./excel-file.js";
 
 export interface InitOptions {
   licenseKey?: string;
@@ -25,7 +25,6 @@ const optionalAddons = [
   "@mescius/spread-sheets-pivot-addon",
   "@mescius/spread-sheets-shapes",
   "@mescius/spread-sheets-slicers",
-
 ] as const;
 
 let initialized = false;

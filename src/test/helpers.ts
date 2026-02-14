@@ -34,7 +34,8 @@ export function readWithFileReader(
   method: "readAsArrayBuffer" | "readAsDataURL" | "readAsText",
   input: unknown,
 ): Promise<unknown> {
-  const ReaderCtor = (globalThis as Record<string, unknown>).FileReader as unknown as new () => {
+  const ReaderCtor = (globalThis as Record<string, unknown>)
+    .FileReader as unknown as new () => {
     result: unknown;
     error: unknown;
     onload: ((event: { target: { result: unknown } }) => void) | null;
