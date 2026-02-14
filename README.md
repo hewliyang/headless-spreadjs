@@ -5,7 +5,7 @@ Headless Excel workbook engine for Node.js — powered by [SpreadJS](https://dev
 ## Features
 
 - **Full Excel fidelity** — 500+ formula functions, charts, pivot tables, tables, cell styling, merging, number formatting
-- **XLSX I/O** — read and write `.xlsx` files with full roundtrip support
+- **XLSX I/O** — read and write `.xlsx, .xlsm` files with full roundtrip support
 - **JSON serialization** — `toJSON()` / `fromJSON()` preserves everything (formulas, styles, charts, pivots)
 
 ## System Dependencies
@@ -24,16 +24,13 @@ macOS: `brew install pkg-config cairo pango libpng jpeg giflib librsvg`
 pnpm add headless-spreadjs
 ```
 
-All SpreadJS packages (core, I/O, charts, pivot tables) are bundled as dependencies — no extra installs needed.
-
-SpreadJS is a commercial library (~$2k license). Trial mode works without a key — an "Evaluation Version" watermark sheet is auto-stripped on import.
-
 ## Usage
 
 ```js
 import { init } from "headless-spreadjs";
 
-// Initialize (with optional license key)
+// Initialize (with optional SpreadJS license key)
+// If you use this for commercial purposes, please get a license from the madlads!
 const { Workbook, GC, dispose } = await init({ licenseKey: "xxx" });
 
 // Create a workbook from scratch
@@ -108,10 +105,6 @@ RUN apt-get update && apt-get install -y \
     build-essential libcairo2-dev libpango1.0-dev \
     libjpeg-dev libgif-dev librsvg2-dev \
     && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
 ```
 
 ## License

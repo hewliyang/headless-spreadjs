@@ -35,11 +35,18 @@
     "pivot-tables",
     "formulas",
     "shapes",
-    "slicers",
-    "shapes",
     "slicers"
   ],
+  "author": "hewliyang",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hewliyang/headless-spreadjs.git"
+  },
+  "homepage": "https://github.com/hewliyang/headless-spreadjs#readme",
+  "bugs": {
+    "url": "https://github.com/hewliyang/headless-spreadjs/issues"
+  },
   "dependencies": {
     "@mescius/spread-sheets": ">=18.0.0",
     "@mescius/spread-sheets-charts": ">=18.0.0",
