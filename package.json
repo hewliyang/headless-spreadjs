@@ -1,0 +1,61 @@
+{
+  "name": "headless-spreadjs",
+  "version": "0.1.0",
+  "description": "Headless Excel workbook engine for Node.js — powered by SpreadJS with DOM shims. No browser, no Excel, any platform.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc --project examples/tsconfig.json",
+    "dev": "tsc --watch",
+    "lint": "biome check",
+    "fmt": "biome check --write",
+    "test": "node --test dist/test",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "excel",
+    "xlsx",
+    "spreadsheet",
+    "headless",
+    "spreadjs",
+    "node",
+    "charts",
+    "pivot-tables",
+    "formulas"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@mescius/spread-sheets": ">=18.0.0",
+    "@mescius/spread-sheets-charts": ">=18.0.0",
+    "@mescius/spread-sheets-io": ">=18.0.0",
+    "@mescius/spread-sheets-pivot-addon": ">=18.0.0",
+    "canvas": "^3.1.0",
+    "happy-dom": "^16.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.15",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "canvas",
+      "esbuild"
+    ]
+  }
+}
