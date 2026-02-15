@@ -1,0 +1,77 @@
+import { withFile } from "../context.js";
+import { fail, ok } from "../output.js";
+import type { SpreadWorkbook } from "../../types.js";
+
+type SheetOp = "list" | "create" | "delete" | "rename";
+
+export async function sheet(
+  filePath: string,
+  op: SheetOp,
+  args: string[],
+): Promise<void> {
+  const needsSave = op !== "list";
+
+  await withFile(
+    filePath,
+    ({ workbook, GC }) => {
+      switch (op) {
+        case "list": {
+          const sheets: { index: number; name: string }[] = [];
+          for (let i = 0; i < workbook.getSheetCount(); i++) {
+            sheets.push({ index: i, name: workbook.getSheet(i).name() });
+          }
+          ok({ sheets });
+          break;
+        }
+
+        case "create": {
+          const name = args[0];
+          if (!name) fail("Usage: hsx sheet <file> create <name>");
+          const ws = new GC.Spread.Sheets.Worksheet(name);
+          workbook.addSheet(workbook.getSheetCount(), ws);
+          ok({ created: name, index: workbook.getSheetCount() - 1 });
+          break;
+        }
+
+        case "delete": {
+          const name = args[0];
+          if (!name) fail("Usage: hsx sheet <file> delete <name>");
+          const index = findSheet(workbook, name);
+          if (index === -1) fail(`Sheet not found: ${name}`);
+          if (workbook.getSheetCount() <= 1) {
+            fail("Cannot delete the only sheet.");
+          }
+          workbook.removeSheet(index);
+          ok({ deleted: name });
+          break;
+        }
+
+        case "rename": {
+          const [oldName, newName] = args;
+          if (!oldName || !newName) {
+            fail("Usage: hsx sheet <file> rename <old> <new>");
+          }
+          const index = findSheet(workbook, oldName);
+          if (index === -1) fail(`Sheet not found: ${oldName}`);
+          workbook.getSheet(index).name(newName);
+          ok({ renamed: { from: oldName, to: newName } });
+          break;
+        }
+
+        default:
+          fail(`Unknown sheet operation: ${op}`);
+      }
+    },
+    { save: needsSave },
+  );
+}
+
+function findSheet(
+  workbook: SpreadWorkbook,
+  name: string,
+): number {
+  for (let i = 0; i < workbook.getSheetCount(); i++) {
+    if (workbook.getSheet(i).name() === name) return i;
+  }
+  return -1;
+}

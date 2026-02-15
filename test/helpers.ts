@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { init } from "../index.js";
+import { init } from "../src/index.js";
 
 export type Runtime = Awaited<ReturnType<typeof init>>;
 

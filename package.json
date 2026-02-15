@@ -11,6 +11,9 @@
       "default": "./dist/index.js"
     }
   },
+  "bin": {
+    "hsx": "./dist/cli/index.js"
+  },
   "files": [
     "dist"
   ],

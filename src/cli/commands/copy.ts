@@ -1,0 +1,63 @@
+import { parseRef, rangeDimensions } from "../a1.js";
+import { withFile } from "../context.js";
+import { fail, ok } from "../output.js";
+
+export async function copy(
+  filePath: string,
+  srcRef: string,
+  dstRef: string,
+): Promise<void> {
+  const src = parseRef(srcRef);
+  const dst = parseRef(dstRef);
+
+  await withFile(
+    filePath,
+    ({ file, workbook }) => {
+      const srcSheet = src.sheet
+        ? workbook.getSheetFromName(src.sheet)
+        : workbook.getActiveSheet();
+      const dstSheet = dst.sheet
+        ? workbook.getSheetFromName(dst.sheet)
+        : srcSheet;
+
+      if (!srcSheet) fail(`Source sheet not found: ${src.sheet}`);
+      if (!dstSheet) fail(`Destination sheet not found: ${dst.sheet}`);
+
+      const { rows: srcRows, cols: srcCols } = rangeDimensions(src);
+      const { rows: dstRows, cols: dstCols } = rangeDimensions(dst);
+
+      file.batch(() => {
+        for (let r = 0; r < dstRows; r++) {
+          for (let c = 0; c < dstCols; c++) {
+            const sr = src.start.row + (r % srcRows);
+            const sc = src.start.col + (c % srcCols);
+            const dr = dst.start.row + r;
+            const dc = dst.start.col + c;
+
+            const formula = srcSheet.getFormula(sr, sc);
+            if (formula) {
+              dstSheet.setFormula(dr, dc, formula);
+            } else {
+              const value = srcSheet.getValue(sr, sc);
+              if (value !== null && value !== undefined) {
+                dstSheet.setValue(dr, dc, value);
+              }
+            }
+
+            const style = srcSheet.getStyle(sr, sc);
+            if (style) {
+              dstSheet.setStyle(dr, dc, style);
+            }
+          }
+        }
+      });
+
+      ok({
+        source: srcRef,
+        destination: dstRef,
+        cellsCopied: dstRows * dstCols,
+      });
+    },
+    { save: true },
+  );
+}
