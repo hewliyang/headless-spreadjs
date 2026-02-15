@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit && tsc --project examples/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --project examples/tsconfig.json && tsc --project test/tsconfig.json",
     "dev": "tsc --watch",
     "lint": "biome check",
     "fmt": "biome check --write",
