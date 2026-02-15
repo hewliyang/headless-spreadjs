@@ -144,7 +144,7 @@ grep -n "fontWeight:\|foreColor:\|backColor:\|formatter:" skill/spreadjs/spreadj
 grep -n "conditionalFormats\|ConditionalFormatting" skill/spreadjs/spreadjs.d.ts
 ```
 
-The file is at `skill/spreadjs/spreadjs.d.ts` relative to the project root. Use `grep -n` to find what you need, then `read` with offset to see full signatures and JSDoc examples.
+The file is at `./spreadjs.d.ts`. Use `grep -n` to find what you need, then `read` with offset to see full signatures and JSDoc examples.
 
 ## Best Practices
 
