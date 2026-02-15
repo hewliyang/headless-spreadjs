@@ -3,7 +3,7 @@
  */
 
 export function ok(data: unknown): void {
-  process.stdout.write(JSON.stringify(data) + "\n");
+  process.stdout.write(`${JSON.stringify(data)}\n`);
 }
 
 export function fail(message: string): never {
@@ -13,9 +13,7 @@ export function fail(message: string): never {
 /**
  * Read input from last positional arg or stdin.
  */
-export async function readInput(
-  argValue: string | undefined,
-): Promise<string> {
+export async function readInput(argValue: string | undefined): Promise<string> {
   if (argValue && argValue !== "-") {
     return argValue;
   }

@@ -25,16 +25,8 @@ export async function evalCode(
         logs.push(`[error] ${args.map(String).join(" ")}`);
 
       try {
-        const AsyncFunction = Object.getPrototypeOf(
-          async function () {},
-        ).constructor;
-        const fn = new AsyncFunction(
-          "workbook",
-          "sheet",
-          "GC",
-          "file",
-          code,
-        );
+        const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+        const fn = new AsyncFunction("workbook", "sheet", "GC", "file", code);
         const result = await fn(workbook, sheet, GC, file);
 
         const output: Record<string, unknown> = {};

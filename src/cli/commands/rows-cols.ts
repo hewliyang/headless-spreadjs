@@ -32,7 +32,10 @@ export async function rowsCols(
       }
 
       if (op === "freeze") {
-        if (!options.ref) fail("freeze requires --ref (e.g. --ref 2 for rows or --ref C for columns)");
+        if (!options.ref)
+          fail(
+            "freeze requires --ref (e.g. --ref 2 for rows or --ref C for columns)",
+          );
         if (dim === "rows") {
           sheet.frozenRowCount(parseInt(options.ref, 10));
         } else {

@@ -1,6 +1,6 @@
+import type { SpreadWorkbook } from "../../types.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
-import type { SpreadWorkbook } from "../../types.js";
 
 type SheetOp = "list" | "create" | "delete" | "rename";
 
@@ -66,10 +66,7 @@ export async function sheet(
   );
 }
 
-function findSheet(
-  workbook: SpreadWorkbook,
-  name: string,
-): number {
+function findSheet(workbook: SpreadWorkbook, name: string): number {
   for (let i = 0; i < workbook.getSheetCount(); i++) {
     if (workbook.getSheet(i).name() === name) return i;
   }

@@ -190,7 +190,7 @@ async function main(): Promise<void> {
     process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(JSON.stringify({ error: message }) + "\n");
+    process.stderr.write(`${JSON.stringify({ error: message })}\n`);
     process.exit(1);
   }
 }

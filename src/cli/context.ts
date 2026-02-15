@@ -2,7 +2,7 @@
  * Lifecycle wrapper: init → open/create → execute → save → dispose.
  */
 
-import { ExcelFile, init } from "../index.js";
+import { type ExcelFile, init } from "../index.js";
 import type { GCNamespace, SpreadWorkbook } from "../types.js";
 
 export interface FileContext {
@@ -32,7 +32,7 @@ export async function withFile<T>(
 export async function withNewFile<T>(
   filePath: string,
   fn?: (ctx: FileContext) => T | Promise<T>,
-): Promise<T | void> {
+): Promise<T | undefined> {
   const { GC, ExcelFile: EF, dispose } = await init();
   try {
     const file = new EF();

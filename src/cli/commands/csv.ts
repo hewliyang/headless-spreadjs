@@ -34,7 +34,7 @@ export async function csv(filePath: string, ref: string): Promise<void> {
       lines.push(row.join(","));
     }
 
-    process.stdout.write(lines.join("\n") + "\n");
+    process.stdout.write(`${lines.join("\n")}\n`);
     process.exit(0);
   });
 }

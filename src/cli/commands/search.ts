@@ -1,6 +1,6 @@
 import { cellToA1 } from "../a1.js";
 import { withFile } from "../context.js";
-import { fail, ok } from "../output.js";
+import { ok } from "../output.js";
 
 interface SearchMatch {
   sheet: string;

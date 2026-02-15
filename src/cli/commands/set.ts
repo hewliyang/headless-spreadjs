@@ -1,7 +1,7 @@
 import { parseRef, rangeDimensions } from "../a1.js";
 import { withFile } from "../context.js";
 import { fail, ok, readInput } from "../output.js";
-import { type CellStyles, applyStyles } from "../styles.js";
+import { applyStyles, type CellStyles } from "../styles.js";
 
 interface CellInput {
   value?: unknown;
