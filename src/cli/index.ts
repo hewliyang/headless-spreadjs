@@ -9,10 +9,10 @@ import { get } from "./commands/get.js";
 import { info } from "./commands/info.js";
 import { objects } from "./commands/objects.js";
 import { resize } from "./commands/resize.js";
-import { rowsCols } from "./commands/rows-cols.js";
+import { rowsCols, type RcOp, type RcDim } from "./commands/rows-cols.js";
 import { search } from "./commands/search.js";
 import { set } from "./commands/set.js";
-import { sheet } from "./commands/sheet.js";
+import { sheet, type SheetOp } from "./commands/sheet.js";
 
 const USAGE = `Usage: hsx <command> [args]
 
@@ -136,14 +136,14 @@ async function main(): Promise<void> {
         const file = requireArg(rest, 0, "sheet <file> <op> [args]");
         const op = requireArg(rest, 1, "sheet <file> <op> [args]");
         const opArgs = rest.slice(2);
-        await sheet(file, op as any, opArgs);
+        await sheet(file, op as SheetOp, opArgs);
         break;
       }
 
       case "rc": {
         const file = requireArg(rest, 0, "rc <file> <op> <dim>");
-        const op = requireArg(rest, 1, "rc <file> <op> <dim>") as any;
-        const dim = requireArg(rest, 2, "rc <file> <op> <dim>") as any;
+        const op = requireArg(rest, 1, "rc <file> <op> <dim>") as RcOp;
+        const dim = requireArg(rest, 2, "rc <file> <op> <dim>") as RcDim;
         await rowsCols(file, op, dim, {
           sheet: flag(rest, "--sheet"),
           ref: flag(rest, "--ref"),

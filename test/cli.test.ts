@@ -255,8 +255,9 @@ describe("cli", () => {
     try {
       await hsx(["info", "/tmp/nonexistent-hsx-test.xlsx"]);
       assert.fail("should have thrown");
-    } catch (err: any) {
-      assert.ok(err.stderr.includes("error"));
+    } catch (err) {
+      const e = err as Error & { stderr: string };
+      assert.ok(e.stderr.includes("error"));
     }
   });
 });

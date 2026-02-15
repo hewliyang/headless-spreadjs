@@ -2,13 +2,13 @@ import { colToIndex } from "../a1.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
 
-type Op = "insert" | "delete" | "hide" | "unhide" | "freeze" | "unfreeze";
-type Dim = "rows" | "columns";
+export type RcOp = "insert" | "delete" | "hide" | "unhide" | "freeze" | "unfreeze";
+export type RcDim = "rows" | "columns";
 
 export async function rowsCols(
   filePath: string,
-  op: Op,
-  dim: Dim,
+  op: RcOp,
+  dim: RcDim,
   options: {
     sheet?: string;
     ref?: string;

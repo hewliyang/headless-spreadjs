@@ -2,6 +2,7 @@
  * Agent-friendly style schema ↔ SpreadJS Style conversion.
  */
 
+import type { Spread } from "@mescius/spread-sheets";
 import type { GCNamespace, SpreadStyle, SpreadWorksheet } from "../types.js";
 
 export interface CellStyles {
@@ -130,12 +131,13 @@ export function applyStyles(
     style.formatter = styles.numberFormat;
   }
   if (styles.horizontalAlignment) {
-    const alignMap: Record<string, number> = {
-      left: 0,
-      center: 1,
-      right: 2,
+    const HAlign = GC.Spread.Sheets.HorizontalAlign;
+    const alignMap: Record<string, Spread.Sheets.HorizontalAlign> = {
+      left: HAlign.left,
+      center: HAlign.center,
+      right: HAlign.right,
     };
-    style.hAlign = alignMap[styles.horizontalAlignment] as any;
+    style.hAlign = alignMap[styles.horizontalAlignment];
   }
 
   sheet.setStyle(row, col, style);

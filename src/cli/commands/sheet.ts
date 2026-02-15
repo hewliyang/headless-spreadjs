@@ -2,7 +2,7 @@ import type { SpreadWorkbook } from "../../types.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
 
-type SheetOp = "list" | "create" | "delete" | "rename";
+export type SheetOp = "list" | "create" | "delete" | "rename";
 
 export async function sheet(
   filePath: string,
