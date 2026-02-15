@@ -131,17 +131,17 @@ When using `hsx eval`, you have access to the full SpreadJS API via the `GC` nam
 
 ```bash
 # Find an enum or class
-grep -n "enum ChartType" skill/spreadjs/spreadjs.d.ts
-grep -n "class Worksheet" skill/spreadjs/spreadjs.d.ts
+grep -n "enum ChartType" ./spreadjs.d.ts
+grep -n "class Worksheet" ./spreadjs.d.ts
 
 # Find methods on a class (read nearby lines for signatures)
-grep -n "addRows\|deleteRows\|addColumns" skill/spreadjs/spreadjs.d.ts
+grep -n "addRows\|deleteRows\|addColumns" ./spreadjs.d.ts
 
 # Find available style properties
-grep -n "fontWeight:\|foreColor:\|backColor:\|formatter:" skill/spreadjs/spreadjs.d.ts
+grep -n "fontWeight:\|foreColor:\|backColor:\|formatter:" ./spreadjs.d.ts
 
 # Find conditional formatting APIs
-grep -n "conditionalFormats\|ConditionalFormatting" skill/spreadjs/spreadjs.d.ts
+grep -n "conditionalFormats\|ConditionalFormatting" ./spreadjs.d.ts
 ```
 
 The file is at `./spreadjs.d.ts`. Use `grep -n` to find what you need, then `read` with offset to see full signatures and JSDoc examples.
