@@ -1,4 +1,7 @@
-import canvas from "canvas";
+import canvas, {
+  type JpegConfig,
+  type NodeCanvasRenderingContext2DSettings,
+} from "canvas";
 import { Window } from "happy-dom";
 
 let shimInstalled = false;
@@ -176,6 +179,113 @@ export function installShims(): void {
   setGlobal("customElements", win.customElements);
   setGlobal("HTMLElement", win.HTMLElement);
   setGlobal("HTMLDivElement", win.HTMLDivElement);
+  // happy-dom's canvas element returns null for getContext('2d') and empty
+  // string for toDataURL, which crashes SpreadJS shape/chart/form-control code.
+  type NodeCanvas = ReturnType<typeof canvas.createCanvas>;
+  interface PatchedCanvas {
+    _nodeCanvas?: NodeCanvas;
+    _nodeCanvasWidth?: number;
+    _nodeCanvasHeight?: number;
+    width?: number;
+    height?: number;
+  }
+
+  interface CanvasProtoLike {
+    getContext?: (
+      this: PatchedCanvas,
+      type: string,
+      attrs?: unknown,
+    ) => unknown;
+    toDataURL?: (
+      this: PatchedCanvas,
+      mimeType?: string,
+      quality?: number,
+    ) => string;
+    toBlob?: (
+      this: PatchedCanvas,
+      callback: (blob: Blob | null) => void,
+      mimeType?: string,
+      quality?: number,
+    ) => void;
+  }
+
+  const CanvasProto = (
+    win.HTMLCanvasElement as unknown as {
+      prototype: CanvasProtoLike;
+    }
+  ).prototype;
+
+  function normalizeSize(value: number | undefined, fallback: number): number {
+    return typeof value === "number" && Number.isFinite(value) && value > 0
+      ? Math.floor(value)
+      : fallback;
+  }
+
+  function getNodeCanvas(self: PatchedCanvas): NodeCanvas {
+    const width = normalizeSize(self.width, 300);
+    const height = normalizeSize(self.height, 150);
+
+    if (
+      !self._nodeCanvas ||
+      self._nodeCanvasWidth !== width ||
+      self._nodeCanvasHeight !== height
+    ) {
+      self._nodeCanvas = canvas.createCanvas(width, height);
+      self._nodeCanvasWidth = width;
+      self._nodeCanvasHeight = height;
+    }
+
+    return self._nodeCanvas;
+  }
+
+  const originalGetContext = CanvasProto.getContext;
+  CanvasProto.getContext = function (type: string, attrs?: unknown) {
+    if (type === "2d") {
+      return getNodeCanvas(this).getContext(
+        "2d",
+        attrs as NodeCanvasRenderingContext2DSettings | undefined,
+      );
+    }
+    return originalGetContext?.call(this, type, attrs) ?? null;
+  };
+
+  CanvasProto.toDataURL = function (
+    mimeType?: string,
+    quality?: number,
+  ): string {
+    const nc = getNodeCanvas(this);
+    if (mimeType === "image/jpeg") {
+      return quality == null
+        ? nc.toDataURL("image/jpeg")
+        : nc.toDataURL("image/jpeg", quality);
+    }
+    return mimeType === "image/png"
+      ? nc.toDataURL("image/png")
+      : nc.toDataURL();
+  };
+
+  CanvasProto.toBlob = function (
+    callback: (blob: Blob | null) => void,
+    mimeType?: string,
+    quality?: number,
+  ): void {
+    queueMicrotask(() => {
+      try {
+        const nc = getNodeCanvas(this);
+        const type = mimeType === "image/jpeg" ? "image/jpeg" : "image/png";
+        const jpegConfig: JpegConfig | undefined =
+          quality == null ? undefined : { quality };
+        const buf =
+          type === "image/jpeg"
+            ? nc.toBuffer("image/jpeg", jpegConfig)
+            : nc.toBuffer("image/png");
+        callback(new Blob([buf], { type }));
+      } catch {
+        callback(null);
+      }
+    });
+  };
+
   setGlobal("HTMLCanvasElement", win.HTMLCanvasElement);
   setGlobal("HTMLImageElement", win.HTMLImageElement);
   setGlobal("Image", win.Image);

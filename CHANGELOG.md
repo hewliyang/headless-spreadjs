@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-02-15
+
+### Features
+
+- **CLI:** Added `--version` / `-v` flag to print the package version.
+
+### Fixed
+
+- **CLI:** Extracted fatal error handling into a shared `reportFatalError` helper, removing duplicated `uncaughtException` / `unhandledRejection` logic. Errors now propagate from `main()` via `.catch()` instead of a redundant inner `try/catch`.
+- **CLI:** Long error messages are now truncated (with `...`) instead of being silently replaced. The generic "unsupported features" fallback message is only used when the error looks like a known SpreadJS canvas/shape/chart/form-control failure.
+- **Shims:** Canvas dimensions are now synced — the backing node-canvas is recreated when the element's `width` or `height` changes, preventing stale context bugs.
+- **Shims:** `toBlob` callback is now dispatched via `queueMicrotask` to match the browser-spec async timing.
+- **Shims:** Removed blanket `as never` type casts in canvas shim; all canvas method calls now use precise overload-matching types from the `canvas` package.
+
 ## [0.0.2] - 2026-02-15
 
 ### Features
