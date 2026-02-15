@@ -5,9 +5,17 @@ description: "Creating & editing Excel workbooks via CLI — powered by SpreadJS
 
 # hsx CLI
 
-All operations are bash calls. Formulas recalculate instantly (no sync step needed).
+## Setup
+
+Before using `hsx`, check it's available. If not, install the package and its system dependencies (Cairo/Pango for `canvas`):
+
+```bash
+which hsx 2>/dev/null || npm install -g @hewliyang/headless-spreadjs
+```
 
 ## Commands
+
+All operations are bash calls. Formulas recalculate instantly (no sync step needed).
 
 ```bash
 hsx create file.xlsx                              # new workbook
