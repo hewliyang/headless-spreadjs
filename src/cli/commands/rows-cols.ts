@@ -2,7 +2,13 @@ import { colToIndex } from "../a1.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
 
-export type RcOp = "insert" | "delete" | "hide" | "unhide" | "freeze" | "unfreeze";
+export type RcOp =
+  | "insert"
+  | "delete"
+  | "hide"
+  | "unhide"
+  | "freeze"
+  | "unfreeze";
 export type RcDim = "rows" | "columns";
 
 export async function rowsCols(

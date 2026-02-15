@@ -9,10 +9,10 @@ import { get } from "./commands/get.js";
 import { info } from "./commands/info.js";
 import { objects } from "./commands/objects.js";
 import { resize } from "./commands/resize.js";
-import { rowsCols, type RcOp, type RcDim } from "./commands/rows-cols.js";
+import { type RcDim, type RcOp, rowsCols } from "./commands/rows-cols.js";
 import { search } from "./commands/search.js";
 import { set } from "./commands/set.js";
-import { sheet, type SheetOp } from "./commands/sheet.js";
+import { type SheetOp, sheet } from "./commands/sheet.js";
 
 const USAGE = `Usage: hsx <command> [args]
 

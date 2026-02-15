@@ -10,18 +10,20 @@ Headless Excel workbook engine for Node.js — powered by [SpreadJS](https://dev
 
 ## System Dependencies
 
-On Linux, install Cairo/Pango (required by the `canvas` npm package):
+Cairo/Pango are required by the `canvas` npm package:
 
 ```bash
+# macOS
+brew install pkg-config cairo pango libpng jpeg giflib librsvg
+
+# Linux (Debian/Ubuntu)
 sudo apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
 ```
-
-macOS: `brew install pkg-config cairo pango libpng jpeg giflib librsvg`
 
 ## Install
 
 ```bash
-pnpm add headless-spreadjs
+npm install headless-spreadjs
 ```
 
 ## Usage
