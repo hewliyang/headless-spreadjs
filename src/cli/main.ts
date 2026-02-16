@@ -12,6 +12,7 @@ import { type RcDim, type RcOp, rowsCols } from "./commands/rows-cols.js";
 import { search } from "./commands/search.js";
 import { set } from "./commands/set.js";
 import { type SheetOp, sheet } from "./commands/sheet.js";
+import { ok, writeStdout, writeStderr } from "./output.js";
 
 const USAGE = `Usage: hsx <command> [args]
 
@@ -29,6 +30,12 @@ Commands:
   resize <file> [--columns A:D] [--width N]  Resize column widths or row heights
   objects <file> [--sheet <name>]             List charts, tables, pivots
   eval <file> [code]                         Execute arbitrary JS (code from arg or stdin)
+  daemon start                               Start the background daemon
+  daemon stop                                Stop the background daemon
+  daemon status                              Show daemon status
+
+Options:
+  --no-daemon                                Skip daemon, run directly
 
 Reference format:
   Sheet1!A1:C10    range on named sheet
@@ -50,21 +57,11 @@ function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
 }
 
-export async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-
-  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
-    console.log(USAGE);
-    process.exit(0);
-  }
-
-  if (args[0] === "--version" || args[0] === "-v") {
-    const require = createRequire(import.meta.url);
-    const { version } = require("../../package.json") as { version: string };
-    console.log(version);
-    process.exit(0);
-  }
-
+/**
+ * Dispatch a parsed argv (without the "hsx" prefix).
+ * Used by both direct CLI and daemon.
+ */
+export async function dispatch(args: string[]): Promise<void> {
   const command = args[0];
   const rest = args.slice(1);
 
@@ -188,19 +185,100 @@ export async function main(): Promise<void> {
     }
 
     default:
-      console.error(`Unknown command: ${command}\n`);
-      console.log(USAGE);
-      process.exit(1);
+      writeStderr(`Unknown command: ${command}\n`);
+      writeStdout(USAGE + "\n");
+      throw new Error(`Unknown command: ${command}`);
+  }
+}
+
+export async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+
+  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
+    console.log(USAGE);
+    process.exit(0);
   }
 
+  if (args[0] === "--version" || args[0] === "-v") {
+    const require = createRequire(import.meta.url);
+    const { version } = require("../../package.json") as { version: string };
+    console.log(version);
+    process.exit(0);
+  }
+
+  const noDaemon = hasFlag(args, "--no-daemon");
+  const filteredArgs = args.filter((a) => a !== "--no-daemon");
+
+  // Handle daemon subcommands
+  if (filteredArgs[0] === "daemon") {
+    const sub = filteredArgs[1];
+    if (sub === "start") {
+      const { startDaemon } = await import("./daemon.js");
+      await startDaemon();
+      return;
+    }
+    if (sub === "stop" || sub === "status") {
+      // Send to running daemon
+      const { tryDaemon } = await import("./client.js");
+      const result = await tryDaemon(filteredArgs, process.cwd());
+      if (result) {
+        if (result.stdout) process.stdout.write(result.stdout);
+        if (result.stderr) process.stderr.write(result.stderr);
+        process.exit(result.exitCode);
+      } else {
+        if (sub === "stop") {
+          console.log(JSON.stringify({ error: "No daemon running" }));
+        } else {
+          console.log(JSON.stringify({ running: false }));
+        }
+        process.exit(sub === "stop" ? 1 : 0);
+      }
+      return;
+    }
+    console.error("Usage: hsx daemon start|stop|status");
+    process.exit(1);
+  }
+
+  // Try daemon mode first (unless --no-daemon)
+  if (!noDaemon) {
+    // Read stdin if needed before sending to daemon
+    let stdin: string | undefined;
+    const command = filteredArgs[0];
+    const needsStdin =
+      (command === "set" && !filteredArgs[3]) ||
+      (command === "eval" && !filteredArgs[2]);
+
+    if (needsStdin && !process.stdin.isTTY) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk as Buffer);
+      }
+      stdin = Buffer.concat(chunks).toString("utf-8").trim();
+    }
+
+    const { tryDaemon } = await import("./client.js");
+    const result = await tryDaemon(filteredArgs, process.cwd(), stdin);
+    if (result) {
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
+      process.exit(result.exitCode);
+    }
+    // Daemon unavailable, fall back to direct mode.
+    // If we pre-read stdin, make it available to readInput() via setStdin.
+    if (stdin) {
+      const { setStdin } = await import("./output.js");
+      setStdin(stdin);
+    }
+  }
+
+  await dispatch(filteredArgs);
   process.exit(0);
 }
 
 function requireArg(args: string[], index: number, usage: string): string {
   const value = args[index];
   if (!value || value.startsWith("--")) {
-    console.error(`Usage: hsx ${usage}`);
-    process.exit(1);
+    throw new Error(`Usage: hsx ${usage}`);
   }
   return value;
 }

@@ -1,6 +1,6 @@
 import { parseRef, rangeDimensions } from "../a1.js";
 import { withFile } from "../context.js";
-import { fail } from "../output.js";
+import { fail, writeStdout } from "../output.js";
 
 export async function csv(filePath: string, ref: string): Promise<void> {
   const parsed = parseRef(ref);
@@ -34,7 +34,6 @@ export async function csv(filePath: string, ref: string): Promise<void> {
       lines.push(row.join(","));
     }
 
-    process.stdout.write(`${lines.join("\n")}\n`);
-    process.exit(0);
+    writeStdout(`${lines.join("\n")}\n`);
   });
 }
