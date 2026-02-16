@@ -1,26 +1,16 @@
-/**
- * hsx daemon — long-running TCP server that keeps SpreadJS init'd
- * and files cached in memory for fast CLI operations.
- *
- * Protocol: newline-delimited JSON over TCP on localhost.
- * Request:  { argv: string[], cwd: string, stdin?: string }
- * Response: { stdout: string, stderr: string, exitCode: number }
- */
-
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
-import { writeFileSync, unlinkSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { init, dispose as disposeRuntime } from "../index.js";
-import { FileCache } from "./file-cache.js";
+import { join } from "node:path";
+import { dispose as disposeRuntime, init } from "../index.js";
 import { setDaemonRuntime } from "./context.js";
-import { startCapture, stopCapture, setStdin } from "./output.js";
+import { FileCache } from "./file-cache.js";
 import { dispatch } from "./main.js";
+import { setStdin, startCapture, stopCapture } from "./output.js";
 
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function getPortFilePath(): string {
-  // Use tmpdir for cross-platform compat; include uid-like component
   const dir = process.platform === "win32" ? tmpdir() : homedir();
   return join(dir, ".hsx-daemon.json");
 }
@@ -35,13 +25,13 @@ export function readDaemonInfo(): DaemonInfo | null {
   try {
     if (!existsSync(portFile)) return null;
     const data = JSON.parse(readFileSync(portFile, "utf-8")) as DaemonInfo;
-    // Check if process is still alive
     try {
       process.kill(data.pid, 0);
       return data;
     } catch {
-      // Process is dead, clean up stale file
-      try { unlinkSync(portFile); } catch {}
+      try {
+        unlinkSync(portFile);
+      } catch {}
       return null;
     }
   } catch {
@@ -49,94 +39,87 @@ export function readDaemonInfo(): DaemonInfo | null {
   }
 }
 
+type DaemonRequest = { argv: string[]; cwd: string; stdin?: string };
+type DaemonResponse = { stdout: string; stderr: string; exitCode: number };
+
 export async function startDaemon(): Promise<void> {
-  const { GC, ExcelFile, dispose } = await init();
+  const { GC, ExcelFile } = await init();
   const fileCache = new FileCache(10);
 
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let activeConnections = 0;
 
+  const server = createServer(handleConnection);
+
   function resetIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      if (activeConnections === 0) {
-        shutdown();
-      }
+      if (activeConnections === 0) shutdown();
     }, IDLE_TIMEOUT_MS);
   }
 
   function shutdown() {
     if (idleTimer) clearTimeout(idleTimer);
     fileCache.clear();
-    try { unlinkSync(getPortFilePath()); } catch {}
+    try {
+      unlinkSync(getPortFilePath());
+    } catch {}
     disposeRuntime();
     server.close();
     process.exit(0);
   }
 
-  // Sequential command queue
   let queue: Promise<void> = Promise.resolve();
-
   function enqueue(fn: () => Promise<void>): Promise<void> {
-    const p = queue.then(fn, fn);
-    queue = p;
-    return p;
+    const task = queue.then(fn, fn);
+    queue = task;
+    return task;
   }
 
   async function handleRequest(
-    request: { argv: string[]; cwd: string; stdin?: string },
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    // Check for daemon control commands
+    request: DaemonRequest,
+  ): Promise<DaemonResponse> {
     if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
-      // Respond first, then shutdown
       setTimeout(shutdown, 100);
-      return { stdout: JSON.stringify({ stopped: true }) + "\n", stderr: "", exitCode: 0 };
-    }
-
-    if (request.argv[0] === "daemon" && request.argv[1] === "status") {
       return {
-        stdout: JSON.stringify({
-          pid: process.pid,
-          cachedFiles: fileCache.size,
-          uptime: Math.floor(process.uptime()),
-        }) + "\n",
+        stdout: `${JSON.stringify({ stopped: true })}\n`,
         stderr: "",
         exitCode: 0,
       };
     }
 
-    // Set daemon runtime context for this command
-    setDaemonRuntime({
-      GC,
-      ExcelFile,
-      fileCache,
-      cwd: request.cwd,
-    });
-
-    // Set stdin for readInput()
-    setStdin(request.stdin);
-
-    // Capture output
-    startCapture();
-
-    let exitCode = 0;
-    try {
-      await dispatch(request.argv);
-    } catch (err) {
-      const { stopCapture: sc } = await import("./output.js");
-      // Write error to captured stderr
-      const message = err instanceof Error ? err.message : String(err);
-      const captured = stopCapture();
+    if (request.argv[0] === "daemon" && request.argv[1] === "status") {
       return {
-        stdout: captured.stdout,
-        stderr: captured.stderr + JSON.stringify({ error: message }) + "\n",
-        exitCode: 1,
+        stdout: `${JSON.stringify({
+          pid: process.pid,
+          cachedFiles: fileCache.size,
+          uptime: Math.floor(process.uptime()),
+        })}\n`,
+        stderr: "",
+        exitCode: 0,
       };
     }
 
-    const captured = stopCapture();
-    setDaemonRuntime(null);
-    return { stdout: captured.stdout, stderr: captured.stderr, exitCode };
+    setDaemonRuntime({ GC, ExcelFile, fileCache, cwd: request.cwd });
+    setStdin(request.stdin);
+    startCapture();
+
+    try {
+      await dispatch(request.argv);
+      const captured = stopCapture();
+      return { stdout: captured.stdout, stderr: captured.stderr, exitCode: 0 };
+    } catch (err) {
+      const captured = stopCapture();
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        stdout: captured.stdout,
+        stderr: `${captured.stderr}${JSON.stringify({ error: message })}\n`,
+        exitCode: 1,
+      };
+    } finally {
+      setDaemonRuntime(null);
+      setStdin(undefined);
+    }
   }
 
   function handleConnection(socket: Socket) {
@@ -148,70 +131,60 @@ export async function startDaemon(): Promise<void> {
     socket.on("data", (data) => {
       buffer += data.toString();
 
-      // Process complete lines
-      let newlineIdx: number;
-      while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+      let newlineIdx = buffer.indexOf("\n");
+      while (newlineIdx !== -1) {
         const line = buffer.slice(0, newlineIdx);
         buffer = buffer.slice(newlineIdx + 1);
 
-        if (!line.trim()) continue;
+        if (line.trim()) {
+          let request: DaemonRequest;
+          try {
+            request = JSON.parse(line) as DaemonRequest;
+          } catch {
+            socket.write(
+              `${JSON.stringify({ stdout: "", stderr: "Invalid JSON\n", exitCode: 1 })}\n`,
+            );
+            newlineIdx = buffer.indexOf("\n");
+            continue;
+          }
 
-        let request: { argv: string[]; cwd: string; stdin?: string };
-        try {
-          request = JSON.parse(line);
-        } catch {
-          socket.write(JSON.stringify({ stdout: "", stderr: "Invalid JSON\n", exitCode: 1 }) + "\n");
-          continue;
+          enqueue(async () => {
+            const response = await handleRequest(request);
+            try {
+              socket.write(`${JSON.stringify(response)}\n`);
+            } catch {}
+          });
         }
 
-        // Enqueue for sequential execution
-        enqueue(async () => {
-          const response = await handleRequest(request);
-          try {
-            socket.write(JSON.stringify(response) + "\n");
-          } catch {
-            // Socket may have closed
-          }
-        });
+        newlineIdx = buffer.indexOf("\n");
       }
     });
 
-    socket.on("close", () => {
+    let disconnected = false;
+    const onDisconnect = () => {
+      if (disconnected) return;
+      disconnected = true;
       activeConnections--;
       resetIdleTimer();
-    });
+    };
 
-    socket.on("error", () => {
-      activeConnections--;
-      resetIdleTimer();
-    });
+    socket.on("close", onDisconnect);
+    socket.on("error", onDisconnect);
   }
 
-  const server = createServer(handleConnection);
-
-  // Listen on random port
   server.listen(0, "127.0.0.1", () => {
     const addr = server.address();
-    if (!addr || typeof addr === "string") {
-      process.exit(1);
-    }
+    if (!addr || typeof addr === "string") process.exit(1);
 
     const info: DaemonInfo = { pid: process.pid, port: addr.port };
     writeFileSync(getPortFilePath(), JSON.stringify(info));
 
-    // Signal to parent that we're ready (if spawned by client)
-    if (process.send) {
-      process.send({ ready: true, port: addr.port });
-    }
-
-    // Also write to stdout for direct invocation
-    process.stdout.write(JSON.stringify({ daemon: "started", ...info }) + "\n");
+    if (process.send) process.send({ ready: true, port: addr.port });
+    process.stdout.write(`${JSON.stringify({ daemon: "started", ...info })}\n`);
 
     resetIdleTimer();
   });
 
-  // Clean up on signals
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, shutdown);
-  }
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

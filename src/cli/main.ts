@@ -12,7 +12,7 @@ import { type RcDim, type RcOp, rowsCols } from "./commands/rows-cols.js";
 import { search } from "./commands/search.js";
 import { set } from "./commands/set.js";
 import { type SheetOp, sheet } from "./commands/sheet.js";
-import { ok, writeStdout, writeStderr } from "./output.js";
+import { writeStderr, writeStdout } from "./output.js";
 
 const USAGE = `Usage: hsx <command> [args]
 
@@ -186,7 +186,7 @@ export async function dispatch(args: string[]): Promise<void> {
 
     default:
       writeStderr(`Unknown command: ${command}\n`);
-      writeStdout(USAGE + "\n");
+      writeStdout(`${USAGE}\n`);
       throw new Error(`Unknown command: ${command}`);
   }
 }

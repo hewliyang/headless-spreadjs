@@ -52,11 +52,7 @@ export class FileCache {
     return { file: entry.file, absPath };
   }
 
-  put(
-    filePath: string,
-    cwd: string,
-    file: ExcelFile,
-  ): void {
+  put(filePath: string, cwd: string, file: ExcelFile): void {
     const absPath = this.key(filePath, cwd);
     const mtime = this.getMtime(absPath);
 

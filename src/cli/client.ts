@@ -1,13 +1,8 @@
-/**
- * Thin daemon client — sends command over TCP, returns response.
- * Auto-spawns daemon if not running.
- */
-
-import { connect } from "node:net";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { connect } from "node:net";
 import { dirname, join } from "node:path";
-import { readDaemonInfo, getPortFilePath, type DaemonInfo } from "./daemon.js";
+import { fileURLToPath } from "node:url";
+import { type DaemonInfo, readDaemonInfo } from "./daemon.js";
 
 const CLIENT_TIMEOUT_MS = 30_000;
 
@@ -20,7 +15,7 @@ async function sendCommand(
   return new Promise((resolve, reject) => {
     const socket = connect({ host: "127.0.0.1", port }, () => {
       const request = JSON.stringify({ argv, cwd, stdin });
-      socket.write(request + "\n");
+      socket.write(`${request}\n`);
     });
 
     let buffer = "";
