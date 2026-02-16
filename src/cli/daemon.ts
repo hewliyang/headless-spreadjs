@@ -4,8 +4,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispose as disposeRuntime, init } from "../index.js";
 import { setDaemonRuntime } from "./context.js";
+import { dispatch } from "./dispatch.js";
 import { FileCache } from "./file-cache.js";
-import { dispatch } from "./main.js";
 import { setStdin, startCapture, stopCapture } from "./output.js";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
