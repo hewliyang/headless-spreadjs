@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { tryDaemon } from "./client.js";
+import { spawnDaemon, tryDaemon } from "./client.js";
 import { startDaemon } from "./daemon.js";
 import { dispatch, USAGE } from "./dispatch.js";
 import { createIoContext, runWithIo } from "./output.js";
@@ -29,7 +29,14 @@ export async function main(): Promise<void> {
   if (filteredArgs[0] === "daemon") {
     const sub = filteredArgs[1];
     if (sub === "start") {
-      await startDaemon();
+      try {
+        await spawnDaemon();
+        console.log(JSON.stringify({ daemon: "started" }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(JSON.stringify({ error: message }));
+        process.exit(1);
+      }
       return;
     }
 

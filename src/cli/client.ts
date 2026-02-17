@@ -55,7 +55,7 @@ async function sendCommand(
   });
 }
 
-async function spawnDaemon(): Promise<void> {
+export async function spawnDaemon(): Promise<void> {
   const thisFile = fileURLToPath(import.meta.url);
   const cliDir = dirname(thisFile);
   const daemonEntry = join(cliDir, "daemon-entry.js");
