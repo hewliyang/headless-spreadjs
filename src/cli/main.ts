@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { tryDaemon } from "./client.js";
 import { startDaemon } from "./daemon.js";
 import { dispatch, USAGE } from "./dispatch.js";
-import { setStdin } from "./output.js";
+import { createIoContext, runWithIo } from "./output.js";
 
 function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
@@ -75,7 +75,13 @@ export async function main(): Promise<void> {
       process.exit(result.exitCode);
     }
 
-    if (stdin) setStdin(stdin);
+    if (stdin) {
+      const io = createIoContext(stdin);
+      await runWithIo(io, () => dispatch(filteredArgs));
+      if (io.stdout) process.stdout.write(io.stdout);
+      if (io.stderr) process.stderr.write(io.stderr);
+      process.exit(0);
+    }
   }
 
   await dispatch(filteredArgs);

@@ -2,9 +2,11 @@
  * Lifecycle wrapper: init → open/create → execute → save → dispose.
  *
  * In daemon mode, uses shared runtime and file cache instead of
- * init/dispose per call.
+ * init/dispose per call. The runtime is scoped per-request via
+ * AsyncLocalStorage.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { resolve } from "node:path";
 import { type ExcelFile, init } from "../index.js";
 import type { GCNamespace, SpreadWorkbook } from "../types.js";
@@ -16,7 +18,7 @@ export interface FileContext {
   GC: GCNamespace;
 }
 
-/** Daemon shared state — set by daemon, null in direct mode. */
+/** Daemon shared state — scoped per-request via AsyncLocalStorage. */
 interface DaemonRuntime {
   GC: GCNamespace;
   ExcelFile: typeof ExcelFile;
@@ -24,14 +26,20 @@ interface DaemonRuntime {
   cwd: string;
 }
 
-let daemonRuntime: DaemonRuntime | null = null;
+const runtimeStore = new AsyncLocalStorage<DaemonRuntime>();
 
-export function setDaemonRuntime(runtime: DaemonRuntime | null): void {
-  daemonRuntime = runtime;
+/**
+ * Run `fn` with the given DaemonRuntime scoped to the async context.
+ */
+export function runWithDaemonRuntime<T>(
+  runtime: DaemonRuntime,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return runtimeStore.run(runtime, fn);
 }
 
 export function getDaemonRuntime(): DaemonRuntime | null {
-  return daemonRuntime;
+  return runtimeStore.getStore() ?? null;
 }
 
 export async function withFile<T>(
@@ -39,8 +47,9 @@ export async function withFile<T>(
   fn: (ctx: FileContext) => T | Promise<T>,
   options?: { save?: boolean },
 ): Promise<T> {
+  const daemonRuntime = runtimeStore.getStore();
   if (daemonRuntime) {
-    return withFileDaemon(filePath, fn, options);
+    return withFileDaemon(daemonRuntime, filePath, fn, options);
   }
 
   const { GC, ExcelFile: EF, dispose } = await init();
@@ -57,11 +66,11 @@ export async function withFile<T>(
 }
 
 async function withFileDaemon<T>(
+  rt: DaemonRuntime,
   filePath: string,
   fn: (ctx: FileContext) => T | Promise<T>,
   options?: { save?: boolean },
 ): Promise<T> {
-  const rt = daemonRuntime!;
   const absPath = resolve(rt.cwd, filePath);
 
   // Try cache first
@@ -90,8 +99,9 @@ export async function withNewFile<T>(
   filePath: string,
   fn?: (ctx: FileContext) => T | Promise<T>,
 ): Promise<T | undefined> {
+  const daemonRuntime = runtimeStore.getStore();
   if (daemonRuntime) {
-    return withNewFileDaemon(filePath, fn);
+    return withNewFileDaemon(daemonRuntime, filePath, fn);
   }
 
   const { GC, ExcelFile: EF, dispose } = await init();
@@ -109,10 +119,10 @@ export async function withNewFile<T>(
 }
 
 async function withNewFileDaemon<T>(
+  rt: DaemonRuntime,
   filePath: string,
   fn?: (ctx: FileContext) => T | Promise<T>,
 ): Promise<T | undefined> {
-  const rt = daemonRuntime!;
   const absPath = resolve(rt.cwd, filePath);
   const file = new rt.ExcelFile();
   let result: T | undefined;

@@ -1,44 +1,50 @@
 /**
  * Structured JSON output helpers for CLI commands.
  *
- * In daemon mode, output is captured instead of written to process streams.
+ * In daemon mode, output is captured via AsyncLocalStorage per-request
+ * instead of written to process streams.
  */
 
-let capturedStdout: string | null = null;
-let capturedStderr: string | null = null;
+import { AsyncLocalStorage } from "node:async_hooks";
 
-/** Enable output capture (daemon mode). */
-export function startCapture(): void {
-  capturedStdout = "";
-  capturedStderr = "";
+export interface IoContext {
+  stdout: string;
+  stderr: string;
+  stdin: string | null;
 }
 
-/** Disable capture and return captured output. */
-export function stopCapture(): { stdout: string; stderr: string } {
-  const result = {
-    stdout: capturedStdout ?? "",
-    stderr: capturedStderr ?? "",
-  };
-  capturedStdout = null;
-  capturedStderr = null;
-  return result;
+const ioStore = new AsyncLocalStorage<IoContext>();
+
+/**
+ * Run `fn` with per-request IO capture.
+ * After fn completes (or throws), the IoContext is accessible
+ * via the returned/outer `io` object.
+ */
+export function runWithIo<T>(
+  io: IoContext,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return ioStore.run(io, fn);
 }
 
-export function isCapturing(): boolean {
-  return capturedStdout !== null;
+/** Create a fresh IoContext, optionally pre-loaded with stdin. */
+export function createIoContext(stdin?: string): IoContext {
+  return { stdout: "", stderr: "", stdin: stdin ?? null };
 }
 
 export function writeStdout(data: string): void {
-  if (capturedStdout !== null) {
-    capturedStdout += data;
+  const io = ioStore.getStore();
+  if (io) {
+    io.stdout += data;
   } else {
     process.stdout.write(data);
   }
 }
 
 export function writeStderr(data: string): void {
-  if (capturedStderr !== null) {
-    capturedStderr += data;
+  const io = ioStore.getStore();
+  if (io) {
+    io.stderr += data;
   } else {
     process.stderr.write(data);
   }
@@ -54,23 +60,18 @@ export function fail(message: string): never {
 
 /**
  * Read input from last positional arg or stdin.
- * In daemon mode, stdin comes from the request payload.
+ * In daemon mode, stdin comes from the IoContext.
  */
-let pendingStdin: string | null = null;
-
-export function setStdin(data: string | undefined): void {
-  pendingStdin = data ?? null;
-}
-
 export async function readInput(argValue: string | undefined): Promise<string> {
   if (argValue && argValue !== "-") {
     return argValue;
   }
 
-  // In daemon mode, use provided stdin
-  if (pendingStdin !== null) {
-    const text = pendingStdin;
-    pendingStdin = null;
+  // In IO-captured context, use provided stdin
+  const io = ioStore.getStore();
+  if (io?.stdin != null) {
+    const text = io.stdin;
+    io.stdin = null; // consume once
     if (!text) {
       fail("No input provided. Pass as argument or pipe via stdin.");
     }

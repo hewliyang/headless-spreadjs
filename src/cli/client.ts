@@ -2,18 +2,18 @@ import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type DaemonInfo, readDaemonInfo } from "./daemon.js";
+import { getSocketPath } from "./daemon.js";
 
 const CLIENT_TIMEOUT_MS = 30_000;
 
 async function sendCommand(
-  port: number,
+  socketPath: string,
   argv: string[],
   cwd: string,
   stdin?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port }, () => {
+    const socket = connect({ path: socketPath }, () => {
       const request = JSON.stringify({ argv, cwd, stdin });
       socket.write(`${request}\n`);
     });
@@ -53,12 +53,12 @@ async function sendCommand(
   });
 }
 
-async function spawnDaemon(): Promise<DaemonInfo> {
+async function spawnDaemon(): Promise<void> {
   const thisFile = fileURLToPath(import.meta.url);
   const cliDir = dirname(thisFile);
   const daemonEntry = join(cliDir, "daemon-entry.js");
 
-  return new Promise<DaemonInfo>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, [daemonEntry], {
       detached: true,
       stdio: ["ignore", "pipe", "ignore"],
@@ -76,9 +76,9 @@ async function spawnDaemon(): Promise<DaemonInfo> {
       if (stdout.includes("\n")) {
         clearTimeout(timeout);
         try {
-          const info = JSON.parse(stdout.trim());
+          JSON.parse(stdout.trim()); // validate JSON
           child.unref();
-          resolve({ pid: info.pid, port: info.port });
+          resolve();
         } catch {
           reject(new Error("Daemon returned invalid startup message"));
         }
@@ -108,25 +108,18 @@ export async function tryDaemon(
   cwd: string,
   stdin?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number } | null> {
-  let info = readDaemonInfo();
+  const socketPath = getSocketPath();
 
-  if (!info) {
-    try {
-      info = await spawnDaemon();
-    } catch {
-      return null; // Fall back to direct mode
-    }
+  try {
+    return await sendCommand(socketPath, argv, cwd, stdin);
+  } catch {
+    // No daemon listening — try to spawn one
   }
 
   try {
-    return await sendCommand(info.port, argv, cwd, stdin);
+    await spawnDaemon();
+    return await sendCommand(socketPath, argv, cwd, stdin);
   } catch {
-    // Daemon might be stale, try respawning once
-    try {
-      info = await spawnDaemon();
-      return await sendCommand(info.port, argv, cwd, stdin);
-    } catch {
-      return null;
-    }
+    return null; // Fall back to direct mode
   }
 }
