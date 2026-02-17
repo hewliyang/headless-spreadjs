@@ -88,10 +88,15 @@ export async function startDaemon(): Promise<void> {
   }
 
   let shuttingDown = false;
-  function shutdown() {
+
+  async function shutdown() {
     if (shuttingDown) return;
     shuttingDown = true;
     if (idleTimer) clearTimeout(idleTimer);
+    const flushed = await fileCache.flushDirty();
+    if (flushed > 0) {
+      daemonLog(`flushed ${flushed} dirty file(s) to disk`);
+    }
     fileCache.clear();
     server.close();
     try {
@@ -133,6 +138,7 @@ export async function startDaemon(): Promise<void> {
         stdout: `${JSON.stringify({
           pid: process.pid,
           cachedFiles: fileCache.size,
+          dirtyFiles: fileCache.dirtyCount,
           maxCacheSize: fileCache.maxCacheSize,
           uptime: Math.floor(process.uptime()),
           heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),

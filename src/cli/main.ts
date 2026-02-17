@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { spawnDaemon, tryDaemon } from "./client.js";
-import { startDaemon } from "./daemon.js";
 import { dispatch, USAGE } from "./dispatch.js";
 import { createIoContext, runWithIo } from "./output.js";
 

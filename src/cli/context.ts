@@ -96,8 +96,7 @@ async function withFileDaemon<T>(
   }
 
   if (options?.save) {
-    await cached.file.save(absPath);
-    await rt.fileCache.updateMtime(filePath, rt.cwd);
+    rt.fileCache.markDirty(filePath, rt.cwd);
   }
 
   return result;
