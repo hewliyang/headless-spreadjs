@@ -88,20 +88,23 @@ Run `hsx --help` for the full list of commands and options.
 
 ### Daemon
 
-The CLI auto-starts a background daemon to avoid re-initializing SpreadJS on every invocation. The daemon caches open workbooks and communicates over a Unix domain socket (`~/.hsx-daemon.sock`, or a named pipe on Windows).
+The CLI auto-starts a background daemon to avoid re-initializing SpreadJS on every invocation. The daemon keeps a long-lived `init()` lifecycle and an LRU cache of open workbooks, communicating over a Unix domain socket (`~/.hsx-daemon.sock`) or a Windows named pipe (`\\.\pipe\hsx-daemon`).
+
+On first use, the thin client auto-spawns the daemon in the background. Subsequent calls connect to the running daemon, skipping SpreadJS initialization and file I/O for cached workbooks. The daemon exits automatically after 5 minutes of inactivity.
+
+If the daemon fails to start or is unreachable, the CLI falls back to direct mode seamlessly.
 
 ```bash
 hsx daemon start     # Start manually (usually automatic)
 hsx daemon status    # Show pid, uptime, memory, cached files
 hsx daemon stop      # Shut down the daemon
+hsx --no-daemon get file.xlsx A1   # Bypass daemon, run directly
 ```
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `HSX_SOCKET_PATH` | `~/.hsx-daemon.sock` | Custom socket path — set per-project to run multiple daemons |
+| `HSX_SOCKET_PATH` | `~/.hsx-daemon.sock` (Unix) / `\\.\pipe\hsx-daemon` (Windows) | Custom socket path — set per-project to run multiple daemons |
 | `HSX_CACHE_SIZE` | `10` | Max number of workbooks held in the LRU cache |
-
-Use `--no-daemon` to bypass the daemon and run directly.
 
 ## SDK API
 

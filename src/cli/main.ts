@@ -77,13 +77,27 @@ export async function main(): Promise<void> {
 
     if (stdin) {
       const io = createIoContext(stdin);
-      await runWithIo(io, () => dispatch(filteredArgs));
+      try {
+        await runWithIo(io, () => dispatch(filteredArgs));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        io.stderr += `${JSON.stringify({ error: message })}\n`;
+        if (io.stdout) process.stdout.write(io.stdout);
+        if (io.stderr) process.stderr.write(io.stderr);
+        process.exit(1);
+      }
       if (io.stdout) process.stdout.write(io.stdout);
       if (io.stderr) process.stderr.write(io.stderr);
       process.exit(0);
     }
   }
 
-  await dispatch(filteredArgs);
+  try {
+    await dispatch(filteredArgs);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`${JSON.stringify({ error: message })}\n`);
+    process.exit(1);
+  }
   process.exit(0);
 }

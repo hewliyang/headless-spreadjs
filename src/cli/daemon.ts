@@ -9,6 +9,8 @@ import { FileCache } from "./file-cache.js";
 import { createIoContext, runWithIo } from "./output.js";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_CACHE_SIZE = 10;
+const PROBE_TIMEOUT_MS = 3_000;
 
 export function getSocketPath(): string {
   if (process.env.HSX_SOCKET_PATH) return process.env.HSX_SOCKET_PATH;
@@ -27,16 +29,24 @@ export function getLogPath(): string {
 
 /**
  * Probe the socket to check if a daemon is already listening.
- * Returns true if a connection succeeds.
+ * Returns true if a connection succeeds within PROBE_TIMEOUT_MS.
  */
 function isDaemonListening(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const probe = connect({ path: socketPath });
+    const timeout = setTimeout(() => {
+      probe.destroy();
+      resolve(false);
+    }, PROBE_TIMEOUT_MS);
     probe.on("connect", () => {
+      clearTimeout(timeout);
       probe.end();
       resolve(true);
     });
-    probe.on("error", () => resolve(false));
+    probe.on("error", () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
   });
 }
 
@@ -61,8 +71,8 @@ export async function startDaemon(): Promise<void> {
   }
 
   const { GC, ExcelFile } = await init();
-  // todo: magic number
-  const cacheSize = parseInt(process.env.HSX_CACHE_SIZE ?? "", 10) || 10;
+  const cacheSize =
+    parseInt(process.env.HSX_CACHE_SIZE ?? "", 10) || DEFAULT_CACHE_SIZE;
   const fileCache = new FileCache(cacheSize);
 
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -77,7 +87,10 @@ export async function startDaemon(): Promise<void> {
     }, IDLE_TIMEOUT_MS);
   }
 
+  let shuttingDown = false;
   function shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
     if (idleTimer) clearTimeout(idleTimer);
     fileCache.clear();
     server.close();
@@ -204,6 +217,15 @@ export async function startDaemon(): Promise<void> {
     socket.on("close", onDisconnect);
     socket.on("error", onDisconnect);
   }
+
+  server.on("error", (err) => {
+    daemonLog(`server error: ${err.message}`);
+    try {
+      unlinkSync(socketPath);
+    } catch {}
+    disposeRuntime();
+    process.exit(1);
+  });
 
   server.listen(socketPath, () => {
     if (process.send) process.send({ ready: true });

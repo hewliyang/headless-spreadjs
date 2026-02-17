@@ -12,7 +12,9 @@ export async function evalCode(
     async ({ file, workbook, GC }) => {
       const sheet = workbook.getActiveSheet();
 
-      // Capture console.log output
+      // Capture console.log output.
+      // NOTE: patches globals — safe because daemon serializes requests
+      // through a sequential queue (see daemon.ts enqueue()).
       const logs: string[] = [];
       const origLog = console.log;
       const origWarn = console.warn;

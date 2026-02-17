@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { getLogPath, getSocketPath } from "./daemon.js";
 
 const CLIENT_TIMEOUT_MS = 30_000;
+const SPAWN_TIMEOUT_MS = 15_000;
 
 async function sendCommand(
   socketPath: string,
@@ -72,8 +73,8 @@ async function spawnDaemon(): Promise<void> {
 
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error("Daemon failed to start within 15s"));
-    }, 15_000); // todo: magic number
+      reject(new Error("Daemon failed to start within timeout"));
+    }, SPAWN_TIMEOUT_MS);
 
     child.on("message", (msg: unknown) => {
       const m = msg as Record<string, unknown>;

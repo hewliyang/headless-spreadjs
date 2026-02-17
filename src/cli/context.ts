@@ -81,11 +81,19 @@ async function withFileDaemon<T>(
     cached = { file, absPath };
   }
 
-  const result = await fn({
-    file: cached.file,
-    workbook: cached.file.workbook,
-    GC: rt.GC,
-  });
+  let result: T;
+  try {
+    result = await fn({
+      file: cached.file,
+      workbook: cached.file.workbook,
+      GC: rt.GC,
+    });
+  } catch (err) {
+    // fn() may have partially mutated the in-memory workbook.
+    // Evict the dirty entry so the next request re-reads from disk.
+    rt.fileCache.invalidate(filePath, rt.cwd);
+    throw err;
+  }
 
   if (options?.save) {
     await cached.file.save(absPath);
