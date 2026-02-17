@@ -86,6 +86,23 @@ hsx eval scores.xlsx '
 
 Run `hsx --help` for the full list of commands and options.
 
+### Daemon
+
+The CLI auto-starts a background daemon to avoid re-initializing SpreadJS on every invocation. The daemon caches open workbooks and communicates over a Unix domain socket (`~/.hsx-daemon.sock`, or a named pipe on Windows).
+
+```bash
+hsx daemon start     # Start manually (usually automatic)
+hsx daemon status    # Show pid, uptime, memory, cached files
+hsx daemon stop      # Shut down the daemon
+```
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `HSX_SOCKET_PATH` | `~/.hsx-daemon.sock` | Custom socket path — set per-project to run multiple daemons |
+| `HSX_CACHE_SIZE` | `10` | Max number of workbooks held in the LRU cache |
+
+Use `--no-daemon` to bypass the daemon and run directly.
+
 ## SDK API
 
 ### `init(options?): { GC, ExcelFile, dispose }`
@@ -148,9 +165,13 @@ Close the happy-dom window to prevent memory leaks. Call when done with all work
 
 ## Concurrency
 
-`headless-spreadjs` installs DOM shims on `globalThis` (e.g. `window`, `document`, `navigator`), so a single Node.js process supports **one `init()` / `dispose()` lifecycle at a time**. You cannot safely run multiple workbook operations concurrently within the same process.
+`headless-spreadjs` installs DOM shims on `globalThis` (e.g. `window`, `document`, `navigator`), so a single Node.js process supports **one `init()` / `dispose()` lifecycle at a time**. Within a single lifecycle, multiple `ExcelFile` instances work concurrently — the shims are stable once installed. The daemon relies on this to serve cached workbooks from a long-lived process.
 
-If you need parallelism, use separate processes (e.g. worker threads or child processes) — each gets its own global scope so the shims don't collide.
+The constraints are:
+- Don't overlap `init()` / `dispose()` lifecycles (e.g. calling `init()` again before `dispose()` completes).
+- Don't call `dispose()` while workbook operations are in-flight.
+
+If you need fully isolated runtimes, use child processes (not worker threads) — the `canvas` native addon's thread-safety varies by version.
 
 ## Docker
 

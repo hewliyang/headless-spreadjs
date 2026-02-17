@@ -74,10 +74,10 @@ async function withFileDaemon<T>(
   const absPath = resolve(rt.cwd, filePath);
 
   // Try cache first
-  let cached = rt.fileCache.get(filePath, rt.cwd);
+  let cached = await rt.fileCache.get(filePath, rt.cwd);
   if (!cached) {
     const file = await rt.ExcelFile.open(absPath);
-    rt.fileCache.put(filePath, rt.cwd, file);
+    await rt.fileCache.put(filePath, rt.cwd, file);
     cached = { file, absPath };
   }
 
@@ -89,7 +89,7 @@ async function withFileDaemon<T>(
 
   if (options?.save) {
     await cached.file.save(absPath);
-    rt.fileCache.updateMtime(filePath, rt.cwd);
+    await rt.fileCache.updateMtime(filePath, rt.cwd);
   }
 
   return result;
@@ -131,7 +131,7 @@ async function withNewFileDaemon<T>(
   }
   await file.save(absPath);
   // Cache the newly created file
-  rt.fileCache.put(filePath, rt.cwd, file);
-  rt.fileCache.updateMtime(filePath, rt.cwd);
+  await rt.fileCache.put(filePath, rt.cwd, file);
+  await rt.fileCache.updateMtime(filePath, rt.cwd);
   return result as T;
 }

@@ -108,22 +108,20 @@ beforeAll(async () => {
   socketPath = path.join(tmpDir, "test-daemon.sock");
 
   daemonProc = spawn("tsx", [DAEMON_ENTRY], {
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "ignore", "pipe", "ipc"],
     env: { ...process.env, HSX_SOCKET_PATH: socketPath },
   });
 
   await new Promise<void>((resolve, reject) => {
-    let stdout = "";
     const timeout = setTimeout(() => {
       daemonProc.kill();
       reject(new Error("Daemon failed to start within 30s"));
     }, 30_000);
 
-    daemonProc.stdout!.on("data", (d: Buffer) => {
-      stdout += d.toString();
-      if (stdout.includes("\n")) {
+    daemonProc.on("message", (msg: unknown) => {
+      const m = msg as Record<string, unknown>;
+      if (m?.ready) {
         clearTimeout(timeout);
-        JSON.parse(stdout.trim()); // validate
         resolve();
       }
     });
@@ -134,8 +132,7 @@ beforeAll(async () => {
     });
     daemonProc.on("exit", (code) => {
       clearTimeout(timeout);
-      if (!stdout.includes("\n"))
-        reject(new Error(`Daemon exited early with code ${code}`));
+      reject(new Error(`Daemon exited early with code ${code}`));
     });
   });
 }, 60_000);

@@ -17,6 +17,14 @@ export function getSocketPath(): string {
     : join(homedir(), ".hsx-daemon.sock");
 }
 
+export function getLogPath(): string {
+  const socketPath = getSocketPath();
+  if (socketPath.startsWith("\\\\.\\pipe\\")) {
+    return join(homedir(), ".hsx-daemon.log");
+  }
+  return socketPath.replace(/\.sock$/, "") + ".log";
+}
+
 /**
  * Probe the socket to check if a daemon is already listening.
  * Returns true if a connection succeeds.
@@ -53,7 +61,9 @@ export async function startDaemon(): Promise<void> {
   }
 
   const { GC, ExcelFile } = await init();
-  const fileCache = new FileCache(10);
+  // todo: magic number
+  const cacheSize = parseInt(process.env.HSX_CACHE_SIZE ?? "", 10) || 10;
+  const fileCache = new FileCache(cacheSize);
 
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let activeConnections = 0;
@@ -78,31 +88,43 @@ export async function startDaemon(): Promise<void> {
     process.exit(0);
   }
 
+  function daemonLog(msg: string): void {
+    const ts = new Date().toISOString();
+    process.stderr.write(`[hsx-daemon ${ts}] ${msg}\n`);
+  }
+
   let queue: Promise<void> = Promise.resolve();
   function enqueue(fn: () => Promise<void>): Promise<void> {
-    const task = queue.then(fn, fn);
+    const task = queue
+      .catch((err) => daemonLog(`queue error: ${err}`))
+      .then(fn);
     queue = task;
     return task;
   }
 
   async function handleRequest(
     request: DaemonRequest,
-  ): Promise<DaemonResponse> {
+  ): Promise<DaemonResponse & { shutdown?: boolean }> {
     if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
-      setTimeout(shutdown, 100);
       return {
         stdout: `${JSON.stringify({ stopped: true })}\n`,
         stderr: "",
         exitCode: 0,
+        shutdown: true,
       };
     }
 
     if (request.argv[0] === "daemon" && request.argv[1] === "status") {
+      const mem = process.memoryUsage();
       return {
         stdout: `${JSON.stringify({
           pid: process.pid,
           cachedFiles: fileCache.size,
+          maxCacheSize: fileCache.maxCacheSize,
           uptime: Math.floor(process.uptime()),
+          heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+          rssMB: Math.round(mem.rss / 1024 / 1024),
+          logFile: getLogPath(),
         })}\n`,
         stderr: "",
         exitCode: 0,
@@ -155,9 +177,15 @@ export async function startDaemon(): Promise<void> {
 
           enqueue(async () => {
             const response = await handleRequest(request);
+            const { shutdown: shouldShutdown, ...wire } = response;
             try {
-              socket.write(`${JSON.stringify(response)}\n`);
-            } catch {}
+              socket.write(`${JSON.stringify(wire)}\n`, (err) => {
+                if (err) daemonLog(`socket.write error: ${err.message}`);
+                if (shouldShutdown) shutdown();
+              });
+            } catch (err) {
+              daemonLog(`socket.write threw: ${err}`);
+            }
           });
         }
 

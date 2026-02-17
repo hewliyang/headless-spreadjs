@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSocketPath } from "./daemon.js";
+import { getLogPath, getSocketPath } from "./daemon.js";
 
 const CLIENT_TIMEOUT_MS = 30_000;
 
@@ -58,30 +59,29 @@ async function spawnDaemon(): Promise<void> {
   const cliDir = dirname(thisFile);
   const daemonEntry = join(cliDir, "daemon-entry.js");
 
+  const logFd = openSync(getLogPath(), "a");
+
   return new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, [daemonEntry], {
       detached: true,
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "ignore", logFd, "ipc"],
       env: { ...process.env },
     });
 
-    let stdout = "";
+    closeSync(logFd); // child inherited the fd, parent can release
+
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error("Daemon failed to start within 15s"));
-    }, 15_000);
+    }, 15_000); // todo: magic number
 
-    child.stdout!.on("data", (data: Buffer) => {
-      stdout += data.toString();
-      if (stdout.includes("\n")) {
+    child.on("message", (msg: unknown) => {
+      const m = msg as Record<string, unknown>;
+      if (m?.ready) {
         clearTimeout(timeout);
-        try {
-          JSON.parse(stdout.trim()); // validate JSON
-          child.unref();
-          resolve();
-        } catch {
-          reject(new Error("Daemon returned invalid startup message"));
-        }
+        child.disconnect();
+        child.unref();
+        resolve();
       }
     });
 
@@ -92,9 +92,7 @@ async function spawnDaemon(): Promise<void> {
 
     child.on("exit", (code) => {
       clearTimeout(timeout);
-      if (!stdout.includes("\n")) {
-        reject(new Error(`Daemon exited with code ${code}`));
-      }
+      reject(new Error(`Daemon exited with code ${code}`));
     });
   });
 }

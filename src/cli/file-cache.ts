@@ -1,8 +1,12 @@
 /**
  * LRU file cache with mtime invalidation for the daemon.
+ *
+ * Uses Map insertion-order for O(1) LRU eviction: on cache hit,
+ * delete + re-insert moves the entry to the end. On eviction,
+ * the first key is always the least-recently-used.
  */
 
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ExcelFile } from "../index.js";
 
@@ -10,7 +14,6 @@ interface CacheEntry {
   file: ExcelFile;
   absPath: string;
   mtime: number;
-  lastAccess: number;
 }
 
 export class FileCache {
@@ -21,68 +24,62 @@ export class FileCache {
     this.maxSize = maxSize;
   }
 
+  get maxCacheSize(): number {
+    return this.maxSize;
+  }
+
   private key(filePath: string, cwd: string): string {
     return resolve(cwd, filePath);
   }
 
-  private getMtime(absPath: string): number {
+  private async getMtime(absPath: string): Promise<number> {
     try {
-      return statSync(absPath).mtimeMs;
+      return (await stat(absPath)).mtimeMs;
     } catch {
       return -1;
     }
   }
 
-  get(
+  async get(
     filePath: string,
     cwd: string,
-  ): { file: ExcelFile; absPath: string } | null {
+  ): Promise<{ file: ExcelFile; absPath: string } | null> {
     const absPath = this.key(filePath, cwd);
     const entry = this.cache.get(absPath);
     if (!entry) return null;
 
     // Check mtime — if file changed on disk, invalidate
-    const currentMtime = this.getMtime(absPath);
+    const currentMtime = await this.getMtime(absPath);
     if (currentMtime !== entry.mtime) {
       this.cache.delete(absPath);
       return null;
     }
 
-    entry.lastAccess = Date.now();
+    // Move to end (most-recently-used)
+    this.cache.delete(absPath);
+    this.cache.set(absPath, entry);
     return { file: entry.file, absPath };
   }
 
-  put(filePath: string, cwd: string, file: ExcelFile): void {
+  async put(filePath: string, cwd: string, file: ExcelFile): Promise<void> {
     const absPath = this.key(filePath, cwd);
-    const mtime = this.getMtime(absPath);
+    const mtime = await this.getMtime(absPath);
 
-    // Evict LRU if at capacity
+    // Evict LRU (first key) if at capacity
     if (this.cache.size >= this.maxSize && !this.cache.has(absPath)) {
-      let oldest: string | null = null;
-      let oldestTime = Infinity;
-      for (const [key, entry] of this.cache) {
-        if (entry.lastAccess < oldestTime) {
-          oldestTime = entry.lastAccess;
-          oldest = key;
-        }
-      }
+      const oldest = this.cache.keys().next().value;
       if (oldest) this.cache.delete(oldest);
     }
 
-    this.cache.set(absPath, {
-      file,
-      absPath,
-      mtime,
-      lastAccess: Date.now(),
-    });
+    this.cache.set(absPath, { file, absPath, mtime });
   }
 
   /** Update mtime after saving a file */
-  updateMtime(filePath: string, cwd: string): void {
+  async updateMtime(filePath: string, cwd: string): Promise<void> {
     const absPath = this.key(filePath, cwd);
     const entry = this.cache.get(absPath);
     if (entry) {
-      entry.mtime = this.getMtime(absPath);
+      entry.mtime = await this.getMtime(absPath);
     }
   }
 
