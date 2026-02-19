@@ -100,20 +100,24 @@ function parseClearType(
   throw new Error(`Invalid value for --type: ${value}`);
 }
 
-export async function dispatch(args: string[]): Promise<void> {
+export async function dispatch(
+  args: string[],
+  options?: { signal?: AbortSignal | null },
+): Promise<void> {
+  const signal = options?.signal;
   const command = args[0];
   const rest = args.slice(1);
 
   switch (command) {
     case "create": {
       const file = requireArg(rest, 0, "create <file>");
-      await create(file);
+      await create(file, { signal });
       break;
     }
 
     case "info": {
       const file = requireArg(rest, 0, "info <file>");
-      await info(file);
+      await info(file, { signal });
       break;
     }
 
@@ -121,14 +125,14 @@ export async function dispatch(args: string[]): Promise<void> {
       const file = requireArg(rest, 0, "get <file> <ref>");
       const ref = requireArg(rest, 1, "get <file> <ref>");
       const styles = !hasFlag(rest, "--no-styles");
-      await get(file, ref, { styles });
+      await get(file, ref, { styles, signal });
       break;
     }
 
     case "csv": {
       const file = requireArg(rest, 0, "csv <file> <ref>");
       const ref = requireArg(rest, 1, "csv <file> <ref>");
-      await csv(file, ref);
+      await csv(file, ref, { signal });
       break;
     }
 
@@ -136,14 +140,14 @@ export async function dispatch(args: string[]): Promise<void> {
       const file = requireArg(rest, 0, "set <file> <ref> [json]");
       const ref = requireArg(rest, 1, "set <file> <ref> [json]");
       const json = rest[2];
-      await set(file, ref, json);
+      await set(file, ref, json, { signal });
       break;
     }
 
     case "clear": {
       const file = requireArg(rest, 0, "clear <file> <ref>");
       const ref = requireArg(rest, 1, "clear <file> <ref>");
-      await clear(file, ref, parseClearType(flag(rest, "--type")));
+      await clear(file, ref, parseClearType(flag(rest, "--type")), { signal });
       break;
     }
 
@@ -155,6 +159,7 @@ export async function dispatch(args: string[]): Promise<void> {
         matchCase: hasFlag(rest, "--match-case"),
         regex: hasFlag(rest, "--regex"),
         maxResults: parseOptionalInt(flag(rest, "--max"), "--max"),
+        signal,
       });
       break;
     }
@@ -163,7 +168,7 @@ export async function dispatch(args: string[]): Promise<void> {
       const file = requireArg(rest, 0, "copy <file> <src> <dst>");
       const src = requireArg(rest, 1, "copy <file> <src> <dst>");
       const dst = requireArg(rest, 2, "copy <file> <src> <dst>");
-      await copy(file, src, dst);
+      await copy(file, src, dst, { signal });
       break;
     }
 
@@ -171,7 +176,7 @@ export async function dispatch(args: string[]): Promise<void> {
       const file = requireArg(rest, 0, "sheet <file> <op> [args]");
       const op = requireArg(rest, 1, "sheet <file> <op> [args]");
       const opArgs = rest.slice(2);
-      await sheet(file, op as SheetOp, opArgs);
+      await sheet(file, op as SheetOp, opArgs, { signal });
       break;
     }
 
@@ -183,6 +188,7 @@ export async function dispatch(args: string[]): Promise<void> {
         sheet: flag(rest, "--sheet"),
         ref: flag(rest, "--ref"),
         count: parseOptionalInt(flag(rest, "--count"), "--count"),
+        signal,
       });
       break;
     }
@@ -194,20 +200,21 @@ export async function dispatch(args: string[]): Promise<void> {
         rows: flag(rest, "--rows"),
         width: parseOptionalFloat(flag(rest, "--width"), "--width"),
         height: parseOptionalFloat(flag(rest, "--height"), "--height"),
+        signal,
       });
       break;
     }
 
     case "objects": {
       const file = requireArg(rest, 0, "objects <file>");
-      await objects(file, flag(rest, "--sheet"));
+      await objects(file, flag(rest, "--sheet"), { signal });
       break;
     }
 
     case "eval": {
       const file = requireArg(rest, 0, "eval <file> [code]");
       const code = rest[1];
-      await evalCode(file, code);
+      await evalCode(file, code, { signal });
       break;
     }
 

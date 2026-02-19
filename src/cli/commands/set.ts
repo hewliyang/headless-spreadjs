@@ -1,4 +1,5 @@
 import { parseRef, rangeDimensions } from "../a1.js";
+import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok, readInput } from "../output.js";
 import { applyStyles, type CellStyles } from "../styles.js";
@@ -13,7 +14,9 @@ export async function set(
   filePath: string,
   ref: string,
   jsonArg: string | undefined,
+  options?: { signal?: AbortSignal | null },
 ): Promise<void> {
+  const signal = options?.signal;
   const input = await readInput(jsonArg);
   let cells: CellInput[][];
 
@@ -39,6 +42,7 @@ export async function set(
     return;
   }
   for (let r = 0; r < cells.length; r++) {
+    throwIfAborted(signal);
     if (cells[r].length !== cols) {
       fail(
         `Column count mismatch in row ${r}: range has ${cols} cols but got ${cells[r].length} cols.`,
@@ -62,6 +66,7 @@ export async function set(
 
       file.batch(() => {
         for (let r = 0; r < rows; r++) {
+          throwIfAborted(signal);
           for (let c = 0; c < cols; c++) {
             const cell = cells[r][c];
             if (!cell) continue;
@@ -89,6 +94,6 @@ export async function set(
 
       ok({ written, range: ref });
     },
-    { save: true },
+    { save: true, signal },
   );
 }

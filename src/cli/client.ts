@@ -29,7 +29,7 @@ async function sendCommand(
 ): Promise<DaemonCommandResult> {
   return new Promise((resolve, reject) => {
     const socket = connect({ path: socketPath }, () => {
-      const request = JSON.stringify({ argv, cwd, stdin });
+      const request = JSON.stringify({ argv, cwd, stdin, timeoutMs });
       socket.write(`${request}\n`);
     });
 

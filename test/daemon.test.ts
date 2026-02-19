@@ -15,10 +15,11 @@ function sendCommand(
   argv: string[],
   cwd: string,
   stdin?: string,
+  timeoutMs?: number,
 ): Promise<DaemonResponse> {
   return new Promise((resolve, reject) => {
     const socket = connect({ path: socketPath }, () => {
-      socket.write(`${JSON.stringify({ argv, cwd, stdin })}\n`);
+      socket.write(`${JSON.stringify({ argv, cwd, stdin, timeoutMs })}\n`);
     });
 
     let buffer = "";
@@ -293,6 +294,87 @@ describe("daemon", () => {
     assert.equal(JSON.parse(responses[0].stdout).cells.A1.value, "Name");
     assert.equal(JSON.parse(responses[1].stdout).cells.B2.value, 4);
     assert.equal(JSON.parse(responses[2].stdout).cells.A2.value, "Alice");
+  });
+
+  it("request timeout aborts long-running command", async () => {
+    const file = path.join(tmpDir, "timeout-abort.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+
+    const startedAt = Date.now();
+    const res = await sendCommand(
+      socketPath,
+      ["resize", file, "--height", "20"],
+      tmpDir,
+      undefined,
+      200,
+    );
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(res.exitCode, 1);
+    assert.ok(res.stderr.includes("timed out"));
+    assert.ok(elapsedMs < 5_000);
+
+    const status = await sendCommand(socketPath, ["daemon", "status"], tmpDir);
+    assert.equal(status.exitCode, 0);
+  });
+
+  it("timed-out request does not block subsequent requests", async () => {
+    const file = path.join(tmpDir, "timeout-unblock.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+
+    const longRequest = sendCommand(
+      socketPath,
+      ["resize", file, "--height", "20"],
+      tmpDir,
+      undefined,
+      200,
+    );
+
+    await new Promise((r) => setTimeout(r, 50));
+    const startedAt = Date.now();
+    const statusRequest = sendCommand(socketPath, ["daemon", "status"], tmpDir);
+
+    const [longRes, statusRes] = await Promise.all([longRequest, statusRequest]);
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(longRes.exitCode, 1);
+    assert.ok(longRes.stderr.includes("timed out"));
+    assert.equal(statusRes.exitCode, 0);
+    assert.ok(elapsedMs < 5_000);
+  });
+
+  it("client disconnect aborts in-flight request", async () => {
+    const file = path.join(tmpDir, "disconnect-abort.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect({ path: socketPath }, () => {
+        socket.write(
+          `${JSON.stringify({
+            argv: ["resize", file, "--height", "20"],
+            cwd: tmpDir,
+            timeoutMs: 5_000,
+          })}\n`,
+        );
+        setTimeout(() => {
+          socket.destroy();
+          resolve();
+        }, 50);
+      });
+
+      socket.on("error", (err) => {
+        if ((err as NodeJS.ErrnoException).code === "ECONNRESET") {
+          resolve();
+          return;
+        }
+        reject(err);
+      });
+    });
+
+    await new Promise((r) => setTimeout(r, 250));
+
+    const status = await sendCommand(socketPath, ["daemon", "status"], tmpDir);
+    assert.equal(status.exitCode, 0);
   });
 
   it("flush writes dirty files", async () => {

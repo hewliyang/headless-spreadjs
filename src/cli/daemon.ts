@@ -3,6 +3,7 @@ import { connect, createServer, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { dispose as disposeRuntime, init } from "../index.js";
+import { registerSignalTimeout, throwIfAborted } from "./abort.js";
 import { runWithDaemonRuntime } from "./context.js";
 import { dispatch } from "./dispatch.js";
 import { FileCache } from "./file-cache.js";
@@ -10,6 +11,7 @@ import { createIoContext, runWithIo } from "./output.js";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_CACHE_SIZE = 10;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 3_000;
 
 function envEnabled(value: string | undefined): boolean {
@@ -63,7 +65,12 @@ function isDaemonListening(socketPath: string): Promise<boolean> {
   });
 }
 
-type DaemonRequest = { argv: string[]; cwd: string; stdin?: string };
+type DaemonRequest = {
+  argv: string[];
+  cwd: string;
+  stdin?: string;
+  timeoutMs?: number;
+};
 type DaemonResponse = { stdout: string; stderr: string; exitCode: number };
 
 export async function startDaemon(): Promise<void> {
@@ -154,8 +161,11 @@ export async function startDaemon(): Promise<void> {
 
   async function handleRequest(
     request: DaemonRequest,
+    signal: AbortSignal,
   ): Promise<DaemonResponse & { shutdown?: boolean }> {
     try {
+      throwIfAborted(signal);
+
       if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
         const flushed = await fileCache.flushDirty();
         if (flushed > 0) {
@@ -214,7 +224,7 @@ export async function startDaemon(): Promise<void> {
 
       try {
         await runWithDaemonRuntime(runtime, () =>
-          runWithIo(io, () => dispatch(request.argv)),
+          runWithIo(io, () => dispatch(request.argv, { signal })),
         );
         return { stdout: io.stdout, stderr: io.stderr, exitCode: 0 };
       } catch (err) {
@@ -237,6 +247,7 @@ export async function startDaemon(): Promise<void> {
     activeConnections++;
     resetIdleTimer();
 
+    const activeControllers = new Set<AbortController>();
     let buffer = "";
 
     socket.on("data", (data) => {
@@ -259,22 +270,47 @@ export async function startDaemon(): Promise<void> {
             continue;
           }
 
+          const controller = new AbortController();
+          activeControllers.add(controller);
+
+          const requestTimeoutMs = envPositiveInt(
+            request.timeoutMs ? String(request.timeoutMs) : undefined,
+            DEFAULT_REQUEST_TIMEOUT_MS,
+          );
+          registerSignalTimeout(
+            controller.signal,
+            requestTimeoutMs,
+            `Command timed out after ${Math.ceil(requestTimeoutMs / 1000)}s`,
+          );
+          const timeout = setTimeout(() => {
+            controller.abort(
+              new Error(
+                `Command timed out after ${Math.ceil(requestTimeoutMs / 1000)}s`,
+              ),
+            );
+          }, requestTimeoutMs);
+
           enqueue(async () => {
-            const response = await handleRequest(request);
-            const { shutdown: shouldShutdown, ...wire } = response;
             try {
-              socket.write(`${JSON.stringify(wire)}\n`, (err) => {
-                if (err) daemonLog(`socket.write error: ${err.message}`);
-                if (shouldShutdown) {
-                  void shutdown({ skipFlush: true }).catch((shutdownErr) => {
-                    daemonLog(
-                      `shutdown failed after stop ack: ${errorMessage(shutdownErr)}`,
-                    );
-                  });
-                }
-              });
-            } catch (err) {
-              daemonLog(`socket.write threw: ${errorMessage(err)}`);
+              const response = await handleRequest(request, controller.signal);
+              const { shutdown: shouldShutdown, ...wire } = response;
+              try {
+                socket.write(`${JSON.stringify(wire)}\n`, (err) => {
+                  if (err) daemonLog(`socket.write error: ${err.message}`);
+                  if (shouldShutdown) {
+                    void shutdown({ skipFlush: true }).catch((shutdownErr) => {
+                      daemonLog(
+                        `shutdown failed after stop ack: ${errorMessage(shutdownErr)}`,
+                      );
+                    });
+                  }
+                });
+              } catch (err) {
+                daemonLog(`socket.write threw: ${errorMessage(err)}`);
+              }
+            } finally {
+              clearTimeout(timeout);
+              activeControllers.delete(controller);
             }
           }).catch((err) => {
             daemonLog(`request handling failed: ${errorMessage(err)}`);
@@ -289,6 +325,9 @@ export async function startDaemon(): Promise<void> {
     const onDisconnect = () => {
       if (disconnected) return;
       disconnected = true;
+      for (const controller of activeControllers) {
+        controller.abort(new Error("Client disconnected"));
+      }
       activeConnections--;
       resetIdleTimer();
     };

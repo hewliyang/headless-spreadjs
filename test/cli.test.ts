@@ -398,6 +398,15 @@ describe("cli", () => {
     assert.ok(res.stderr.includes("timed out"));
   });
 
+  it("times out long-running daemon commands", async () => {
+    const res = await hsxRaw(
+      ["--timeout", "1", "resize", testFile, "--height", "20"],
+      testEnv,
+    );
+    assert.equal(res.code, 1);
+    assert.ok(res.stderr.includes("timed out") || res.stderr.includes("aborted"));
+  });
+
   it("daemon status on missing socket does not auto-start", async () => {
     const missingEnv = {
       ...testEnv,

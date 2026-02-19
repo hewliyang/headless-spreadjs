@@ -1,4 +1,5 @@
 import { cellToA1 } from "../a1.js";
+import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { ok } from "../output.js";
 
@@ -17,73 +18,82 @@ export async function search(
     matchCase?: boolean;
     regex?: boolean;
     maxResults?: number;
+    signal?: AbortSignal | null;
   },
 ): Promise<void> {
-  await withFile(filePath, ({ workbook }) => {
-    const matches: SearchMatch[] = [];
-    const max = options.maxResults ?? 500;
+  const signal = options.signal;
 
-    const pattern = options.regex
-      ? new RegExp(term, options.matchCase ? "" : "i")
-      : null;
+  await withFile(
+    filePath,
+    ({ workbook }) => {
+      const matches: SearchMatch[] = [];
+      const max = options.maxResults ?? 500;
 
-    const sheetCount = workbook.getSheetCount();
+      const pattern = options.regex
+        ? new RegExp(term, options.matchCase ? "" : "i")
+        : null;
 
-    for (let si = 0; si < sheetCount && matches.length < max; si++) {
-      const ws = workbook.getSheet(si);
-      const sheetName = ws.name();
+      const sheetCount = workbook.getSheetCount();
 
-      if (options.sheet && sheetName !== options.sheet) continue;
+      for (let si = 0; si < sheetCount && matches.length < max; si++) {
+        throwIfAborted(signal);
+        const ws = workbook.getSheet(si);
+        const sheetName = ws.name();
 
-      let usedRows = 0;
-      let usedCols = 0;
-      try {
-        const range = ws.getUsedRange(16 | 32); // data | formula
-        if (range && range.rowCount > 0) {
-          usedRows = range.row + range.rowCount;
-          usedCols = range.col + range.colCount;
+        if (options.sheet && sheetName !== options.sheet) continue;
+
+        let usedRows = 0;
+        let usedCols = 0;
+        try {
+          const range = ws.getUsedRange(16 | 32); // data | formula
+          if (range && range.rowCount > 0) {
+            usedRows = range.row + range.rowCount;
+            usedCols = range.col + range.colCount;
+          }
+        } catch {
+          continue;
         }
-      } catch {
-        continue;
+
+        for (let r = 0; r < usedRows && matches.length < max; r++) {
+          throwIfAborted(signal);
+          for (let c = 0; c < usedCols && matches.length < max; c++) {
+            const value = ws.getValue(r, c);
+            const formula = ws.getFormula(r, c);
+
+            if (value === null || value === undefined) {
+              if (!formula) continue;
+            }
+
+            const text = String(value ?? "");
+            let isMatch = false;
+
+            if (pattern) {
+              isMatch = pattern.test(text);
+            } else if (options.matchCase) {
+              isMatch = text.includes(term);
+            } else {
+              isMatch = text.toLowerCase().includes(term.toLowerCase());
+            }
+
+            if (!isMatch) continue;
+
+            matches.push({
+              sheet: sheetName,
+              cell: cellToA1(r, c),
+              value,
+              formula: formula || null,
+            });
+          }
+        }
       }
 
-      for (let r = 0; r < usedRows && matches.length < max; r++) {
-        for (let c = 0; c < usedCols && matches.length < max; c++) {
-          const value = ws.getValue(r, c);
-          const formula = ws.getFormula(r, c);
-
-          if (value === null || value === undefined) {
-            if (!formula) continue;
-          }
-
-          const text = String(value ?? "");
-          let isMatch = false;
-
-          if (pattern) {
-            isMatch = pattern.test(text);
-          } else if (options.matchCase) {
-            isMatch = text.includes(term);
-          } else {
-            isMatch = text.toLowerCase().includes(term.toLowerCase());
-          }
-
-          if (!isMatch) continue;
-
-          matches.push({
-            sheet: sheetName,
-            cell: cellToA1(r, c),
-            value,
-            formula: formula || null,
-          });
-        }
-      }
-    }
-
-    ok({
-      matches,
-      totalFound: matches.length,
-      hasMore: matches.length >= max,
-      searchTerm: term,
-    });
-  });
+      ok({
+        matches,
+        totalFound: matches.length,
+        hasMore: matches.length >= max,
+        searchTerm: term,
+      });
+    },
+    { signal },
+  );
 }

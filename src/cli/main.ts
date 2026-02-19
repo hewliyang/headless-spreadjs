@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { registerSignalTimeout } from "./abort.js";
 import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
 import { dispatch, USAGE } from "./dispatch.js";
 import { createIoContext, runWithIo } from "./output.js";
@@ -69,20 +70,25 @@ function parseGlobalOptions(args: string[]): {
 }
 
 async function runWithTimeout<T>(
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
 ): Promise<T> {
+  const controller = new AbortController();
+  registerSignalTimeout(
+    controller.signal,
+    timeoutMs,
+    `Command timed out after ${Math.ceil(timeoutMs / 1000)}s`,
+  );
   let timer: ReturnType<typeof setTimeout> | null = null;
+
   try {
     return await Promise.race([
-      fn(),
+      fn(controller.signal),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(
-            new Error(
-              `Command timed out after ${Math.ceil(timeoutMs / 1000)}s`,
-            ),
-          );
+          const message = `Command timed out after ${Math.ceil(timeoutMs / 1000)}s`;
+          controller.abort(new Error(message));
+          reject(new Error(message));
         }, timeoutMs);
       }),
     ]);
@@ -255,7 +261,10 @@ export async function main(): Promise<void> {
       const io = createIoContext(stdin);
       try {
         await runWithTimeout(
-          () => Promise.resolve(runWithIo(io, () => dispatch(filteredArgs))),
+          (signal) =>
+            Promise.resolve(
+              runWithIo(io, () => dispatch(filteredArgs, { signal })),
+            ),
           timeoutMs,
         );
       } catch (err) {
@@ -268,7 +277,10 @@ export async function main(): Promise<void> {
   }
 
   try {
-    await runWithTimeout(() => dispatch(filteredArgs), timeoutMs);
+    await runWithTimeout(
+      (signal) => dispatch(filteredArgs, { signal }),
+      timeoutMs,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });

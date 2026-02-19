@@ -1,4 +1,5 @@
 import { parseRef, rangeDimensions } from "../a1.js";
+import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
 
@@ -6,9 +7,11 @@ export async function copy(
   filePath: string,
   srcRef: string,
   dstRef: string,
+  options?: { signal?: AbortSignal | null },
 ): Promise<void> {
   const src = parseRef(srcRef);
   const dst = parseRef(dstRef);
+  const signal = options?.signal;
 
   await withFile(
     filePath,
@@ -28,6 +31,7 @@ export async function copy(
 
       file.batch(() => {
         for (let r = 0; r < dstRows; r++) {
+          throwIfAborted(signal);
           for (let c = 0; c < dstCols; c++) {
             const sr = src.start.row + (r % srcRows);
             const sc = src.start.col + (c % srcCols);
@@ -58,6 +62,6 @@ export async function copy(
         cellsCopied: dstRows * dstCols,
       });
     },
-    { save: true },
+    { save: true, signal },
   );
 }

@@ -4,6 +4,7 @@ import { fail, ok, readInput } from "../output.js";
 export async function evalCode(
   filePath: string,
   codeArg: string | undefined,
+  options?: { signal?: AbortSignal | null },
 ): Promise<void> {
   const code = await readInput(codeArg);
 
@@ -48,6 +49,6 @@ export async function evalCode(
         console.error = origError;
       }
     },
-    { save: true },
+    { save: true, signal: options?.signal },
   );
 }
