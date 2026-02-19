@@ -1,7 +1,7 @@
 import { clear } from "./commands/clear.js";
 import { copy } from "./commands/copy.js";
 import { create } from "./commands/create.js";
-import { csv } from "./commands/csv.js";
+import { type CsvMode, csv } from "./commands/csv.js";
 import { evalCode } from "./commands/eval.js";
 import { get } from "./commands/get.js";
 import { info } from "./commands/info.js";
@@ -19,7 +19,7 @@ Commands:
   create <file>                              Create a new Excel file
   info <file>                                Show workbook metadata
   get <file> <ref>                           Read cells (Sheet1!A1:C10)
-  csv <file> <ref>                           Read range as CSV
+  csv <file> <ref> [--mode M] [--formulas]  Read range as CSV
   set <file> <ref> [json]                    Write cells (JSON from arg or stdin)
   clear <file> <ref> [--type all|styles]     Clear a range (default: values only)
   search <file> <term> [--sheet S] [--regex] Search for values across sheets
@@ -38,6 +38,12 @@ Options:
   --no-daemon                                Skip daemon, run directly
   --timeout <seconds>                        Command timeout (default: 30s)
 
+CSV options:
+  --mode value|formula|both  value: calculated values (default)
+                              formula: formula text for formula cells
+                              both: value and formula (e.g. "5 | =B2+1")
+  --formulas                shorthand for --mode formula
+
 Reference format:
   Sheet1!A1:C10    range on named sheet
   A1:C10           range on active sheet
@@ -47,7 +53,8 @@ Globals available in eval:
   workbook   SpreadJS Workbook instance
   sheet      Active worksheet
   GC         GC.Spread.Sheets namespace
-  file       ExcelFile wrapper (batch, save, toJSON)`;
+  file       ExcelFile wrapper (batch, save, toJSON)
+  range(ref) SpreadJS Range resolved from A1 ref (active sheet by default)`;
 
 function flag(args: string[], name: string): string | undefined {
   const idx = args.indexOf(name);
@@ -100,6 +107,30 @@ function parseClearType(
   throw new Error(`Invalid value for --type: ${value}`);
 }
 
+function parseCsvMode(args: string[]): CsvMode {
+  const explicitMode = flag(args, "--mode");
+  const hasModeFlag = hasFlag(args, "--mode");
+
+  if (hasModeFlag && (!explicitMode || explicitMode.startsWith("--"))) {
+    throw new Error("Usage: hsx csv <file> <ref> [--mode value|formula|both]");
+  }
+
+  if (explicitMode) {
+    if (
+      explicitMode === "value" ||
+      explicitMode === "formula" ||
+      explicitMode === "both"
+    ) {
+      return explicitMode;
+    }
+    throw new Error(
+      `Invalid --mode value: ${explicitMode}. Expected value|formula|both`,
+    );
+  }
+
+  return hasFlag(args, "--formulas") ? "formula" : "value";
+}
+
 export async function dispatch(
   args: string[],
   options?: { signal?: AbortSignal | null },
@@ -130,9 +161,18 @@ export async function dispatch(
     }
 
     case "csv": {
-      const file = requireArg(rest, 0, "csv <file> <ref>");
-      const ref = requireArg(rest, 1, "csv <file> <ref>");
-      await csv(file, ref, { signal });
+      const file = requireArg(
+        rest,
+        0,
+        "csv <file> <ref> [--mode value|formula|both]",
+      );
+      const ref = requireArg(
+        rest,
+        1,
+        "csv <file> <ref> [--mode value|formula|both]",
+      );
+      const mode = parseCsvMode(rest);
+      await csv(file, ref, { signal, mode });
       break;
     }
 

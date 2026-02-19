@@ -70,8 +70,11 @@ hsx set scores.xlsx A1:B3 '[["Name","Score"],["Alice",95],["Bob",87]]'
 # Read cells back
 hsx get scores.xlsx A1:B3
 
-# Dump a range as CSV
+# Dump a range as CSV (calculated values)
 hsx csv scores.xlsx A1:B3
+
+# Dump formulas for formula cells
+hsx csv scores.xlsx A1:B3 --mode formula
 
 # Search across sheets
 hsx search scores.xlsx "Alice"

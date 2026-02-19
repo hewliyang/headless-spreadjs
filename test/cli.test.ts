@@ -187,6 +187,36 @@ describe("cli", () => {
     assert.equal(lines[2], "Bob,5");
   });
 
+  it("csv --mode formula", async () => {
+    const { stdout } = await hsx(["csv", testFile, "A1:B3", "--mode", "formula"]);
+    const lines = stdout.trim().split("\n");
+    assert.equal(lines[0], "Name,Qty");
+    assert.equal(lines[1], "Alice,4");
+    assert.equal(lines[2], "Bob,=B2+1");
+  });
+
+  it("csv --formulas shorthand", async () => {
+    const { stdout } = await hsx(["csv", testFile, "A1:B3", "--formulas"]);
+    const lines = stdout.trim().split("\n");
+    assert.equal(lines[2], "Bob,=B2+1");
+  });
+
+  it("csv --mode both", async () => {
+    const { stdout } = await hsx(["csv", testFile, "A1:B3", "--mode", "both"]);
+    const lines = stdout.trim().split("\n");
+    assert.equal(lines[2], "Bob,5 | =B2+1");
+  });
+
+  it("csv errors on invalid mode", async () => {
+    try {
+      await hsx(["csv", testFile, "A1:B3", "--mode", "wat"]);
+      assert.fail("should have thrown");
+    } catch (err) {
+      const e = err as Error & { stderr: string };
+      assert.ok(e.stderr.includes("Invalid --mode value"));
+    }
+  });
+
   it("clear", async () => {
     await hsx(["clear", testFile, "B2"]);
     const { stdout } = await hsx(["get", testFile, "B2"]);

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Features
+
+- **CLI:** `hsx csv` now supports `--mode value|formula|both`, plus `--formulas` shorthand for formula-focused exports.
+
 ## [0.0.3] - 2026-02-15
 
 ### Features
