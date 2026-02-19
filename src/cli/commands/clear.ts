@@ -6,6 +6,7 @@ export async function clear(
   filePath: string,
   ref: string,
   clearType: "values" | "styles" | "all" = "values",
+  options?: { signal?: AbortSignal | null },
 ): Promise<void> {
   const parsed = parseRef(ref);
 
@@ -51,6 +52,6 @@ export async function clear(
 
       ok({ cleared: ref, type: clearType });
     },
-    { save: true },
+    { save: true, signal: options?.signal },
   );
 }

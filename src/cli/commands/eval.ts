@@ -4,6 +4,7 @@ import { fail, ok, readInput } from "../output.js";
 export async function evalCode(
   filePath: string,
   codeArg: string | undefined,
+  options?: { signal?: AbortSignal | null },
 ): Promise<void> {
   const code = await readInput(codeArg);
 
@@ -12,7 +13,6 @@ export async function evalCode(
     async ({ file, workbook, GC }) => {
       const sheet = workbook.getActiveSheet();
 
-      // Capture console.log output
       const logs: string[] = [];
       const origLog = console.log;
       const origWarn = console.warn;
@@ -39,12 +39,9 @@ export async function evalCode(
         if (Object.keys(output).length === 0) {
           output.result = null;
         }
+
         ok(output);
       } catch (err) {
-        // Restore console before failing
-        console.log = origLog;
-        console.warn = origWarn;
-        console.error = origError;
         fail(err instanceof Error ? err.message : String(err));
       } finally {
         console.log = origLog;
@@ -52,6 +49,6 @@ export async function evalCode(
         console.error = origError;
       }
     },
-    { save: true },
+    { save: true, signal: options?.signal },
   );
 }

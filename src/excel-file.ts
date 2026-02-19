@@ -143,6 +143,26 @@ function importWorkbook(
   });
 }
 
+/**
+ * SpreadJS defaults to 200 rows × 20 columns and **silently drops**
+ * any writes outside that range.  Expand every sheet in the workbook
+ * to the Excel-maximum so callers never hit this.
+ *
+ * Cost: ~16 MB heap + ~180 ms per workbook (one-time).
+ * File size is unaffected — SpreadJS only serializes populated cells.
+ */
+const EXCEL_MAX_ROWS = 1_048_576;
+const EXCEL_MAX_COLS = 16_384;
+
+function expandSheetDefaults(spread: SpreadWorkbook): void {
+  const n = spread.getSheetCount();
+  for (let i = 0; i < n; i++) {
+    const s = spread.getSheet(i);
+    if (s.getRowCount() < EXCEL_MAX_ROWS) s.setRowCount(EXCEL_MAX_ROWS);
+    if (s.getColumnCount() < EXCEL_MAX_COLS) s.setColumnCount(EXCEL_MAX_COLS);
+  }
+}
+
 export function setGC(gc: GCNamespace | null): void {
   gcRef = gc;
 }
@@ -153,6 +173,7 @@ export class ExcelFile {
   constructor(workbook?: SpreadWorkbook) {
     const gc = getGC();
     this.workbook = workbook ?? new gc.Spread.Sheets.Workbook();
+    expandSheetDefaults(this.workbook);
   }
 
   batch<T>(fn: () => T): T;

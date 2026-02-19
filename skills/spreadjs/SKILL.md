@@ -17,6 +17,8 @@ which hsx 2>/dev/null || npm install -g @hewliyang/headless-spreadjs
 
 All operations are bash calls. Formulas recalculate instantly (no sync step needed).
 
+All commands support a global timeout option: `--timeout <seconds>` (default: `30`).
+
 ```bash
 hsx create file.xlsx                              # new workbook
 hsx info file.xlsx                                # sheets, used ranges
@@ -31,6 +33,7 @@ hsx rc file.xlsx insert|delete|hide|freeze rows|columns  # row/col ops
 hsx resize file.xlsx --columns A:D --width 120    # column/row sizing
 hsx objects file.xlsx                             # list charts, tables
 hsx eval file.xlsx "code"                         # arbitrary JS
+hsx --timeout 120 eval file.xlsx "code"           # override timeout to 120s
 ```
 
 References use A1 notation: `Sheet1!A1:C10`, `A1:C10` (active sheet), or `A1` (single cell).

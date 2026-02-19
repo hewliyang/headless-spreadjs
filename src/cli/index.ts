@@ -31,11 +31,25 @@ function toErrorMessage(reason: unknown): string {
 }
 
 function reportFatalError(reason: unknown): never {
+  const err = reason as NodeJS.ErrnoException;
+  if (err?.code === "EPIPE") {
+    process.exit(0);
+  }
+
   process.stderr.write(
     `${JSON.stringify({ error: toErrorMessage(reason) })}\n`,
   );
   process.exit(1);
 }
+
+function handlePipeError(err: NodeJS.ErrnoException): void {
+  if (err.code === "EPIPE") {
+    process.exit(0);
+  }
+}
+
+process.stdout.on("error", handlePipeError);
+process.stderr.on("error", handlePipeError);
 
 process.on("uncaughtException", reportFatalError);
 process.on("unhandledRejection", reportFatalError);

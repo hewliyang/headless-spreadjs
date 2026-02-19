@@ -1,4 +1,5 @@
 import { colToIndex } from "../a1.js";
+import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
 
@@ -19,8 +20,11 @@ export async function rowsCols(
     sheet?: string;
     ref?: string;
     count?: number;
+    signal?: AbortSignal | null;
   },
 ): Promise<void> {
+  const signal = options.signal;
+
   await withFile(
     filePath,
     ({ workbook }) => {
@@ -77,6 +81,7 @@ export async function rowsCols(
 
         case "hide":
           for (let i = 0; i < count; i++) {
+            throwIfAborted(signal);
             if (isRow) {
               sheet.setRowVisible(index + i, false);
             } else {
@@ -87,6 +92,7 @@ export async function rowsCols(
 
         case "unhide":
           for (let i = 0; i < count; i++) {
+            throwIfAborted(signal);
             if (isRow) {
               sheet.setRowVisible(index + i, true);
             } else {
@@ -98,6 +104,6 @@ export async function rowsCols(
 
       ok({ operation: op, dimension: dim, ref: options.ref, count });
     },
-    { save: true },
+    { save: true, signal },
   );
 }

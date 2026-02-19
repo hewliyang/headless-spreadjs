@@ -86,6 +86,35 @@ hsx eval scores.xlsx '
 
 Run `hsx --help` for the full list of commands and options.
 
+### Daemon
+
+The CLI auto-starts a background daemon to avoid re-initializing SpreadJS on every invocation. The daemon keeps a long-lived `init()` lifecycle and an LRU cache of open workbooks, communicating over a Unix domain socket (`~/.hsx-daemon.sock`) or a Windows named pipe (`\\.\pipe\hsx-daemon`).
+
+On first use, the thin client auto-spawns the daemon in the background. Subsequent calls connect to the running daemon, skipping SpreadJS initialization and file I/O for cached workbooks. The daemon exits automatically after 5 minutes of inactivity.
+
+If the daemon fails to start or is unreachable, the CLI falls back to direct mode seamlessly.
+
+By default, daemon writes are **buffered in memory** for speed. This means a successful write command may not be immediately visible to other processes reading the XLSX on disk until a flush/eviction/shutdown happens.
+
+```bash
+hsx daemon start     # Start manually (usually automatic)
+hsx daemon status    # Show pid, uptime, memory, cached/dirty files
+hsx daemon flush     # Flush buffered writes to disk now
+hsx daemon stop      # Flush + shut down the daemon
+hsx --no-daemon get file.xlsx A1   # Bypass daemon, run directly
+hsx --timeout 120 eval file.xlsx '/* long-running script */'   # 120s timeout
+```
+
+`hsx daemon status|stop|flush` only talk to an existing daemon; they do not auto-start one.
+
+All CLI commands support a global `--timeout` option (default `30s`). Timeout values are seconds only (for example: `--timeout 45`).
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `HSX_SOCKET_PATH` | `~/.hsx-daemon.sock` (Unix) / `\\.\pipe\hsx-daemon` (Windows) | Custom socket path — set per-project to run multiple daemons |
+| `HSX_CACHE_SIZE` | `10` | Max number of workbooks held in the LRU cache |
+| `HSX_WRITE_THROUGH` | `0` | Set to `1`/`true`/`yes`/`on` to save immediately after each write (disable buffering) |
+
 ## SDK API
 
 ### `init(options?): { GC, ExcelFile, dispose }`
@@ -148,9 +177,13 @@ Close the happy-dom window to prevent memory leaks. Call when done with all work
 
 ## Concurrency
 
-`headless-spreadjs` installs DOM shims on `globalThis` (e.g. `window`, `document`, `navigator`), so a single Node.js process supports **one `init()` / `dispose()` lifecycle at a time**. You cannot safely run multiple workbook operations concurrently within the same process.
+`headless-spreadjs` installs DOM shims on `globalThis` (e.g. `window`, `document`, `navigator`), so a single Node.js process supports **one `init()` / `dispose()` lifecycle at a time**. Within a single lifecycle, multiple `ExcelFile` instances work concurrently — the shims are stable once installed. The daemon relies on this to serve cached workbooks from a long-lived process.
 
-If you need parallelism, use separate processes (e.g. worker threads or child processes) — each gets its own global scope so the shims don't collide.
+The constraints are:
+- Don't overlap `init()` / `dispose()` lifecycles (e.g. calling `init()` again before `dispose()` completes).
+- Don't call `dispose()` while workbook operations are in-flight.
+
+If you need fully isolated runtimes, use child processes (not worker threads) — the `canvas` native addon's thread-safety varies by version.
 
 ## Docker
 

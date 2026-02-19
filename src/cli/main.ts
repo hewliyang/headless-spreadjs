@@ -1,206 +1,290 @@
 import { createRequire } from "node:module";
-import { clear } from "./commands/clear.js";
-import { copy } from "./commands/copy.js";
-import { create } from "./commands/create.js";
-import { csv } from "./commands/csv.js";
-import { evalCode } from "./commands/eval.js";
-import { get } from "./commands/get.js";
-import { info } from "./commands/info.js";
-import { objects } from "./commands/objects.js";
-import { resize } from "./commands/resize.js";
-import { type RcDim, type RcOp, rowsCols } from "./commands/rows-cols.js";
-import { search } from "./commands/search.js";
-import { set } from "./commands/set.js";
-import { type SheetOp, sheet } from "./commands/sheet.js";
+import { registerSignalTimeout } from "./abort.js";
+import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
+import { dispatch, USAGE } from "./dispatch.js";
+import { createIoContext, runWithIo } from "./output.js";
 
-const USAGE = `Usage: hsx <command> [args]
-
-Commands:
-  create <file>                              Create a new Excel file
-  info <file>                                Show workbook metadata
-  get <file> <ref>                           Read cells (Sheet1!A1:C10)
-  csv <file> <ref>                           Read range as CSV
-  set <file> <ref> [json]                    Write cells (JSON from arg or stdin)
-  clear <file> <ref> [--type all|styles]     Clear a range (default: values only)
-  search <file> <term> [--sheet S] [--regex] Search for values across sheets
-  copy <file> <src> <dst>                    Copy range (formulas + styles)
-  sheet <file> <op> [args]                   list | create | delete | rename
-  rc <file> <op> <dim> [--ref R] [--count N] Insert/delete/hide/freeze rows or columns
-  resize <file> [--columns A:D] [--width N]  Resize column widths or row heights
-  objects <file> [--sheet <name>]             List charts, tables, pivots
-  eval <file> [code]                         Execute arbitrary JS (code from arg or stdin)
-
-Reference format:
-  Sheet1!A1:C10    range on named sheet
-  A1:C10           range on active sheet
-  A1               single cell
-
-Globals available in eval:
-  workbook   SpreadJS Workbook instance
-  sheet      Active worksheet
-  GC         GC.Spread.Sheets namespace
-  file       ExcelFile wrapper (batch, save, toJSON)`;
-
-function flag(args: string[], name: string): string | undefined {
-  const idx = args.indexOf(name);
-  return idx !== -1 ? args[idx + 1] : undefined;
-}
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
 }
 
+function parseTimeoutValue(raw: string): number {
+  const value = raw.trim();
+  if (!/^\d+(\.\d+)?$/.test(value)) {
+    throw new Error("Invalid --timeout value (expected seconds)");
+  }
+
+  const seconds = Number.parseFloat(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error("Invalid --timeout value (expected seconds)");
+  }
+  return Math.floor(seconds * 1000);
+}
+
+function parseGlobalOptions(args: string[]): {
+  args: string[];
+  timeoutMs: number;
+} {
+  const out: string[] = [];
+  let timeoutMs = DEFAULT_TIMEOUT_MS;
+  let parsingGlobals = true;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (!parsingGlobals) {
+      out.push(arg);
+      continue;
+    }
+
+    if (arg === "--") {
+      parsingGlobals = false;
+      continue;
+    }
+
+    if (arg === "--timeout") {
+      const raw = args[i + 1];
+      if (!raw || raw.startsWith("--")) {
+        throw new Error("Usage: --timeout <seconds>");
+      }
+      timeoutMs = parseTimeoutValue(raw);
+      i++;
+      continue;
+    }
+
+    if (arg.startsWith("--timeout=")) {
+      timeoutMs = parseTimeoutValue(arg.slice("--timeout=".length));
+      continue;
+    }
+
+    if (!arg.startsWith("--")) {
+      parsingGlobals = false;
+    }
+
+    out.push(arg);
+  }
+
+  return { args: out, timeoutMs };
+}
+
+async function runWithTimeout<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
+  registerSignalTimeout(
+    controller.signal,
+    timeoutMs,
+    `Command timed out after ${Math.ceil(timeoutMs / 1000)}s`,
+  );
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      fn(controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const message = `Command timed out after ${Math.ceil(timeoutMs / 1000)}s`;
+          controller.abort(new Error(message));
+          reject(new Error(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function writeTo(
+  stream: NodeJS.WriteStream,
+  data: string,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const finish = (err?: NodeJS.ErrnoException | null) => {
+      if (settled) return;
+      settled = true;
+      stream.off("error", onError);
+
+      if (
+        err?.code === "EPIPE" ||
+        err?.message?.toUpperCase().includes("EPIPE")
+      ) {
+        resolve();
+        return;
+      }
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    };
+
+    const onError = (err: NodeJS.ErrnoException) => finish(err);
+
+    stream.once("error", onError);
+    try {
+      stream.write(data, (err?: Error | null) => {
+        finish((err as NodeJS.ErrnoException | null | undefined) ?? null);
+      });
+    } catch (err) {
+      finish(err as NodeJS.ErrnoException);
+    }
+  });
+}
+
+async function flushStdStreams(): Promise<void> {
+  await Promise.all([writeTo(process.stdout, ""), writeTo(process.stderr, "")]);
+}
+
+async function exitWith(
+  code: number,
+  output?: { stdout?: string; stderr?: string },
+): Promise<never> {
+  if (output?.stdout) {
+    await writeTo(process.stdout, output.stdout);
+  }
+  if (output?.stderr) {
+    await writeTo(process.stderr, output.stderr);
+  }
+
+  await flushStdStreams();
+  process.exit(code);
+}
+
 export async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  let args: string[];
+  let timeoutMs: number;
+
+  try {
+    const parsed = parseGlobalOptions(process.argv.slice(2));
+    args = parsed.args;
+    timeoutMs = parsed.timeoutMs;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
+  }
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
-    console.log(USAGE);
-    process.exit(0);
+    return exitWith(0, { stdout: `${USAGE}\n` });
   }
 
   if (args[0] === "--version" || args[0] === "-v") {
     const require = createRequire(import.meta.url);
     const { version } = require("../../package.json") as { version: string };
-    console.log(version);
-    process.exit(0);
+    return exitWith(0, { stdout: `${version}\n` });
   }
 
-  const command = args[0];
-  const rest = args.slice(1);
+  const noDaemon = hasFlag(args, "--no-daemon");
+  const filteredArgs = args.filter((a) => a !== "--no-daemon");
 
-  switch (command) {
-    case "create": {
-      const file = requireArg(rest, 0, "create <file>");
-      await create(file);
-      break;
+  if (filteredArgs[0] === "daemon") {
+    const sub = filteredArgs[1];
+    if (sub === "start") {
+      try {
+        await spawnDaemon(timeoutMs);
+        return exitWith(0, {
+          stdout: `${JSON.stringify({ daemon: "started" })}\n`,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return exitWith(1, {
+          stderr: `${JSON.stringify({ error: message })}\n`,
+        });
+      }
     }
 
-    case "info": {
-      const file = requireArg(rest, 0, "info <file>");
-      await info(file);
-      break;
-    }
+    if (sub === "stop" || sub === "status" || sub === "flush") {
+      const result = await tryExistingDaemon(
+        filteredArgs,
+        process.cwd(),
+        undefined,
+        timeoutMs,
+      );
+      if (result) {
+        return exitWith(result.exitCode, {
+          stdout: result.stdout,
+          stderr: result.stderr,
+        });
+      }
 
-    case "get": {
-      const file = requireArg(rest, 0, "get <file> <ref>");
-      const ref = requireArg(rest, 1, "get <file> <ref>");
-      const styles = !hasFlag(rest, "--no-styles");
-      await get(file, ref, { styles });
-      break;
-    }
+      if (sub === "status") {
+        return exitWith(0, {
+          stdout: `${JSON.stringify({ running: false })}\n`,
+        });
+      }
 
-    case "csv": {
-      const file = requireArg(rest, 0, "csv <file> <ref>");
-      const ref = requireArg(rest, 1, "csv <file> <ref>");
-      await csv(file, ref);
-      break;
-    }
-
-    case "set": {
-      const file = requireArg(rest, 0, "set <file> <ref> [json]");
-      const ref = requireArg(rest, 1, "set <file> <ref> [json]");
-      const json = rest[2]; // optional, reads stdin if missing
-      await set(file, ref, json);
-      break;
-    }
-
-    case "clear": {
-      const file = requireArg(rest, 0, "clear <file> <ref>");
-      const ref = requireArg(rest, 1, "clear <file> <ref>");
-      const clearType = (flag(rest, "--type") ?? "values") as
-        | "values"
-        | "styles"
-        | "all";
-      await clear(file, ref, clearType);
-      break;
-    }
-
-    case "search": {
-      const file = requireArg(rest, 0, "search <file> <term>");
-      const term = requireArg(rest, 1, "search <file> <term>");
-      await search(file, term, {
-        sheet: flag(rest, "--sheet"),
-        matchCase: hasFlag(rest, "--match-case"),
-        regex: hasFlag(rest, "--regex"),
-        maxResults: flag(rest, "--max")
-          ? parseInt(flag(rest, "--max")!, 10)
-          : undefined,
+      return exitWith(1, {
+        stdout: `${JSON.stringify({ error: "No daemon running" })}\n`,
       });
-      break;
     }
 
-    case "copy": {
-      const file = requireArg(rest, 0, "copy <file> <src> <dst>");
-      const src = requireArg(rest, 1, "copy <file> <src> <dst>");
-      const dst = requireArg(rest, 2, "copy <file> <src> <dst>");
-      await copy(file, src, dst);
-      break;
-    }
-
-    case "sheet": {
-      const file = requireArg(rest, 0, "sheet <file> <op> [args]");
-      const op = requireArg(rest, 1, "sheet <file> <op> [args]");
-      const opArgs = rest.slice(2);
-      await sheet(file, op as SheetOp, opArgs);
-      break;
-    }
-
-    case "rc": {
-      const file = requireArg(rest, 0, "rc <file> <op> <dim>");
-      const op = requireArg(rest, 1, "rc <file> <op> <dim>") as RcOp;
-      const dim = requireArg(rest, 2, "rc <file> <op> <dim>") as RcDim;
-      await rowsCols(file, op, dim, {
-        sheet: flag(rest, "--sheet"),
-        ref: flag(rest, "--ref"),
-        count: flag(rest, "--count")
-          ? parseInt(flag(rest, "--count")!, 10)
-          : undefined,
-      });
-      break;
-    }
-
-    case "resize": {
-      const file = requireArg(rest, 0, "resize <file> [options]");
-      await resize(file, flag(rest, "--sheet"), {
-        columns: flag(rest, "--columns"),
-        rows: flag(rest, "--rows"),
-        width: flag(rest, "--width")
-          ? parseFloat(flag(rest, "--width")!)
-          : undefined,
-        height: flag(rest, "--height")
-          ? parseFloat(flag(rest, "--height")!)
-          : undefined,
-      });
-      break;
-    }
-
-    case "objects": {
-      const file = requireArg(rest, 0, "objects <file>");
-      await objects(file, flag(rest, "--sheet"));
-      break;
-    }
-
-    case "eval": {
-      const file = requireArg(rest, 0, "eval <file> [code]");
-      const code = rest[1]; // optional, reads stdin if missing
-      await evalCode(file, code);
-      break;
-    }
-
-    default:
-      console.error(`Unknown command: ${command}\n`);
-      console.log(USAGE);
-      process.exit(1);
+    return exitWith(1, {
+      stderr: "Usage: hsx daemon start|stop|status|flush\n",
+    });
   }
 
-  process.exit(0);
-}
+  if (!noDaemon) {
+    let stdin: string | undefined;
+    const command = filteredArgs[0];
+    const setJsonArg = filteredArgs[3];
+    const evalCodeArg = filteredArgs[2];
+    const needsStdin =
+      (command === "set" && (!setJsonArg || setJsonArg === "-")) ||
+      (command === "eval" && (!evalCodeArg || evalCodeArg === "-"));
 
-function requireArg(args: string[], index: number, usage: string): string {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    console.error(`Usage: hsx ${usage}`);
-    process.exit(1);
+    if (needsStdin && !process.stdin.isTTY) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk as Buffer);
+      }
+      stdin = Buffer.concat(chunks).toString("utf-8").trim();
+    }
+
+    const result = await tryDaemon(
+      filteredArgs,
+      process.cwd(),
+      stdin,
+      timeoutMs,
+    );
+    if (result) {
+      return exitWith(result.exitCode, {
+        stdout: result.stdout,
+        stderr: result.stderr,
+      });
+    }
+
+    if (stdin !== undefined) {
+      const io = createIoContext(stdin);
+      try {
+        await runWithTimeout(
+          (signal) =>
+            Promise.resolve(
+              runWithIo(io, () => dispatch(filteredArgs, { signal })),
+            ),
+          timeoutMs,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        io.stderr += `${JSON.stringify({ error: message })}\n`;
+        return exitWith(1, { stdout: io.stdout, stderr: io.stderr });
+      }
+      return exitWith(0, { stdout: io.stdout, stderr: io.stderr });
+    }
   }
-  return value;
+
+  try {
+    await runWithTimeout(
+      (signal) => dispatch(filteredArgs, { signal }),
+      timeoutMs,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
+  }
+
+  return exitWith(0);
 }
