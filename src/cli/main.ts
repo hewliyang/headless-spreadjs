@@ -74,10 +74,14 @@ export async function main(): Promise<void> {
     if (sub === "start") {
       try {
         await spawnDaemon();
-        return exitWith(0, { stdout: `${JSON.stringify({ daemon: "started" })}\n` });
+        return exitWith(0, {
+          stdout: `${JSON.stringify({ daemon: "started" })}\n`,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
+        return exitWith(1, {
+          stderr: `${JSON.stringify({ error: message })}\n`,
+        });
       }
     }
 
@@ -91,7 +95,9 @@ export async function main(): Promise<void> {
       }
 
       if (sub === "status") {
-        return exitWith(0, { stdout: `${JSON.stringify({ running: false })}\n` });
+        return exitWith(0, {
+          stdout: `${JSON.stringify({ running: false })}\n`,
+        });
       }
 
       return exitWith(1, {
@@ -99,7 +105,9 @@ export async function main(): Promise<void> {
       });
     }
 
-    return exitWith(1, { stderr: "Usage: hsx daemon start|stop|status|flush\n" });
+    return exitWith(1, {
+      stderr: "Usage: hsx daemon start|stop|status|flush\n",
+    });
   }
 
   if (!noDaemon) {

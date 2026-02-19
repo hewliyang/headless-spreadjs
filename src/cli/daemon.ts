@@ -121,7 +121,9 @@ export async function startDaemon(): Promise<void> {
           daemonLog(`flushed ${flushed} dirty file(s) to disk`);
         }
       } catch (err) {
-        daemonLog(`shutdown aborted: failed to flush dirty files: ${errorMessage(err)}`);
+        daemonLog(
+          `shutdown aborted: failed to flush dirty files: ${errorMessage(err)}`,
+        );
         shuttingDown = false;
         resetIdleTimer();
         throw err;
@@ -140,7 +142,9 @@ export async function startDaemon(): Promise<void> {
 
   let queue: Promise<void> = Promise.resolve();
   function enqueue(fn: () => Promise<void>): Promise<void> {
-    const task = queue.catch((err) => daemonLog(`queue error: ${err}`)).then(fn);
+    const task = queue
+      .catch((err) => daemonLog(`queue error: ${err}`))
+      .then(fn);
     queue = task;
     return task;
   }
