@@ -82,6 +82,12 @@ hsx eval scores.xlsx '
   sheet.setFormula(3, 1, "AVERAGE(B2:B3)");
   await file.save("scores.xlsx");
 '
+
+# A1 helper inside eval: range(ref) -> native SpreadJS Range
+hsx eval scores.xlsx '
+  range("B2").value(96);
+  range("Sheet1!B3").formula("B2-9");
+'
 ```
 
 Run `hsx --help` for the full list of commands and options.

@@ -1,3 +1,4 @@
+import { parseRef } from "../a1.js";
 import { withFile } from "../context.js";
 import { fail, ok, readInput } from "../output.js";
 
@@ -13,6 +14,38 @@ export async function evalCode(
     async ({ file, workbook, GC }) => {
       const sheet = workbook.getActiveSheet();
 
+      const range = (ref: string) => {
+        if (typeof ref !== "string" || ref.trim().length === 0) {
+          throw new Error(
+            "range(ref) expects a non-empty A1 reference string.",
+          );
+        }
+
+        const parsed = parseRef(ref.trim());
+        const targetSheet = parsed.sheet
+          ? workbook.getSheetFromName(parsed.sheet)
+          : workbook.getActiveSheet();
+
+        if (!targetSheet) {
+          throw new Error(`Sheet not found: ${parsed.sheet ?? "(active)"}`);
+        }
+
+        const rowCount = parsed.end.row - parsed.start.row + 1;
+        const colCount = parsed.end.col - parsed.start.col + 1;
+
+        if (rowCount < 1 || colCount < 1) {
+          throw new Error(`Invalid range reference: ${ref}`);
+        }
+
+        return targetSheet.getRange(
+          parsed.start.row,
+          parsed.start.col,
+          rowCount,
+          colCount,
+        );
+      };
+
+      // Capture console.log output
       const logs: string[] = [];
       const origLog = console.log;
       const origWarn = console.warn;
@@ -26,8 +59,15 @@ export async function evalCode(
 
       try {
         const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-        const fn = new AsyncFunction("workbook", "sheet", "GC", "file", code);
-        const result = await fn(workbook, sheet, GC, file);
+        const fn = new AsyncFunction(
+          "workbook",
+          "sheet",
+          "GC",
+          "file",
+          "range",
+          code,
+        );
+        const result = await fn(workbook, sheet, GC, file, range);
 
         const output: Record<string, unknown> = {};
         if (result !== undefined) {

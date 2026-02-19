@@ -225,6 +225,30 @@ describe("cli", () => {
     assert.deepStrictEqual(result.logs, ["hello"]);
   });
 
+  it("eval range(ref) resolves A1 on active + named sheets", async () => {
+    const rangeFile = path.join(tmpDir, "eval-range-helper.xlsx");
+    await hsx(["create", rangeFile]);
+    await hsx(["sheet", rangeFile, "create", "Data Sheet"]);
+
+    const { stdout } = await hsx([
+      "eval",
+      rangeFile,
+      `
+      workbook.getSheetFromName("Data Sheet").setValue(0, 0, "seed");
+      range("B2").value(42);
+      range("'Data Sheet'!A1").value("ok");
+      return {
+        activeB2: range("B2").value(),
+        dataA1: range("'Data Sheet'!A1").value()
+      };
+      `,
+    ]);
+
+    const result = JSON.parse(stdout);
+    assert.equal(result.result.activeB2, 42);
+    assert.equal(result.result.dataA1, "ok");
+  });
+
   it("eval can create charts", async () => {
     const cells = [
       [{ value: "Month" }, { value: "Rev" }],

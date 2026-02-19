@@ -112,9 +112,17 @@ For charts, sparklines, pivot tables, conditional formatting — anything the st
 
 ```bash
 hsx eval file.xlsx "
-  // Globals: workbook, sheet (active), GC, file
+  // Globals: workbook, sheet (active), GC, file, range(ref)
   sheet.charts.add('Revenue', GC.Spread.Sheets.Charts.ChartType.line,
     0, 120, 500, 300, 'A1:E6');
+"
+```
+
+```bash
+# A1 notation helper: range(ref) returns native SpreadJS Range
+hsx eval file.xlsx "
+  range('B2').value(96);                 // active sheet
+  range("'Data Sheet'!C5").formula('B2*2'); // quoted sheet names supported
 "
 ```
 
