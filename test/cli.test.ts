@@ -430,10 +430,10 @@ describe("cli", () => {
     assert.ok(res2.stderr.includes("error"));
   });
 
-  it("does not parse --timeout inside command args as global option", async () => {
+  it("parses --timeout even after command args", async () => {
     const res = await hsxRaw(["--no-daemon", "eval", testFile, "--timeout"], testEnv);
     assert.equal(res.code, 1);
-    assert.ok(!res.stderr.includes("Usage: --timeout <seconds>"));
+    assert.ok(res.stderr.includes("Usage: --timeout <seconds>"));
   });
 
   it("times out long-running direct commands", async () => {

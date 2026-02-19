@@ -12,7 +12,7 @@ export async function clear(
 
   await withFile(
     filePath,
-    ({ workbook, GC }) => {
+    ({ file, workbook, GC }) => {
       const sheet = parsed.sheet
         ? workbook.getSheetFromName(parsed.sheet)
         : workbook.getActiveSheet();
@@ -29,26 +29,28 @@ export async function clear(
         cols,
       );
 
-      if (clearType === "values" || clearType === "all") {
-        sheet.clear(
-          range.row,
-          range.col,
-          range.rowCount,
-          range.colCount,
-          GC.Spread.Sheets.SheetArea.viewport,
-          GC.Spread.Sheets.StorageType.data,
-        );
-      }
-      if (clearType === "styles" || clearType === "all") {
-        sheet.clear(
-          range.row,
-          range.col,
-          range.rowCount,
-          range.colCount,
-          GC.Spread.Sheets.SheetArea.viewport,
-          GC.Spread.Sheets.StorageType.style,
-        );
-      }
+      file.batch(() => {
+        if (clearType === "values" || clearType === "all") {
+          sheet.clear(
+            range.row,
+            range.col,
+            range.rowCount,
+            range.colCount,
+            GC.Spread.Sheets.SheetArea.viewport,
+            GC.Spread.Sheets.StorageType.data,
+          );
+        }
+        if (clearType === "styles" || clearType === "all") {
+          sheet.clear(
+            range.row,
+            range.col,
+            range.rowCount,
+            range.colCount,
+            GC.Spread.Sheets.SheetArea.viewport,
+            GC.Spread.Sheets.StorageType.style,
+          );
+        }
+      });
 
       ok({ cleared: ref, type: clearType });
     },

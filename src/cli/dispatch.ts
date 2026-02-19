@@ -8,6 +8,7 @@ import { info } from "./commands/info.js";
 import { objects } from "./commands/objects.js";
 import { resize } from "./commands/resize.js";
 import { type RcDim, type RcOp, rowsCols } from "./commands/rows-cols.js";
+import { screenshot } from "./commands/screenshot.js";
 import { search } from "./commands/search.js";
 import { set } from "./commands/set.js";
 import { type SheetOp, sheet } from "./commands/sheet.js";
@@ -28,6 +29,7 @@ Commands:
   rc <file> <op> <dim> [--ref R] [--count N] Insert/delete/hide/freeze rows or columns
   resize <file> [--columns A:D] [--width N]  Resize column widths or row heights
   objects <file> [--sheet <name>]             List charts, tables, pivots
+  screenshot <file> [ref] [-o out.png]       Screenshot workbook or range as PNG
   eval <file> [code]                         Execute arbitrary JS (code from arg or stdin)
   daemon start                               Start the background daemon
   daemon stop                                Stop the background daemon
@@ -248,6 +250,17 @@ export async function dispatch(
     case "objects": {
       const file = requireArg(rest, 0, "objects <file>");
       await objects(file, flag(rest, "--sheet"), { signal });
+      break;
+    }
+
+    case "screenshot": {
+      const file = requireArg(rest, 0, "screenshot <file> [ref] [-o out.png]");
+      const ref = rest[1] && !rest[1].startsWith("-") ? rest[1] : undefined;
+      await screenshot(file, {
+        ref,
+        out: flag(rest, "-o") ?? flag(rest, "--out"),
+        signal,
+      });
       break;
     }
 

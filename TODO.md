@@ -37,11 +37,11 @@ Triage outcome for feature requests (as of 2026-02-19), incorporating follow-up 
       3. Match target against precedent ranges.
   - Label results as **one-hop / best-effort** (dynamic formulas like `INDIRECT` can limit precision).
 
-- [ ] **(4) `hsx formulas` command** — **Not necessary now**
+- [x] **(4) `hsx formulas` command** — **Not necessary now**
   - Decision: deprioritize/skip for now since `hsx get` already returns formulas.
   - Reconsider only if repeated user demand appears.
 
-- [ ] **(3) eval reserved names (`sheet`)** — **No action needed now**
+- [x] **(3) eval reserved names (`sheet`)** — **No action needed now**
   - Decision: acceptable UX; users learn after first failure.
   - Optional docs polish later, but not prioritized.
 

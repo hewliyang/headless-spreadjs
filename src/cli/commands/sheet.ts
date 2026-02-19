@@ -16,7 +16,7 @@ export async function sheet(
 
   await withFile(
     filePath,
-    ({ workbook, GC }) => {
+    ({ file, workbook, GC }) => {
       switch (op) {
         case "list": {
           const sheets: { index: number; name: string }[] = [];
@@ -31,8 +31,10 @@ export async function sheet(
         case "create": {
           const name = args[0];
           if (!name) fail("Usage: hsx sheet <file> create <name>");
-          const ws = new GC.Spread.Sheets.Worksheet(name);
-          workbook.addSheet(workbook.getSheetCount(), ws);
+          file.batch(() => {
+            const ws = new GC.Spread.Sheets.Worksheet(name);
+            workbook.addSheet(workbook.getSheetCount(), ws);
+          });
           ok({ created: name, index: workbook.getSheetCount() - 1 });
           break;
         }
@@ -45,7 +47,9 @@ export async function sheet(
           if (workbook.getSheetCount() <= 1) {
             fail("Cannot delete the only sheet.");
           }
-          workbook.removeSheet(index);
+          file.batch(() => {
+            workbook.removeSheet(index);
+          });
           ok({ deleted: name });
           break;
         }
@@ -57,7 +61,9 @@ export async function sheet(
           }
           const index = findSheet(workbook, oldName, signal);
           if (index === -1) fail(`Sheet not found: ${oldName}`);
-          workbook.getSheet(index).name(newName);
+          file.batch(() => {
+            workbook.getSheet(index).name(newName);
+          });
           ok({ renamed: { from: oldName, to: newName } });
           break;
         }

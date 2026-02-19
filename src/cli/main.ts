@@ -29,20 +29,9 @@ function parseGlobalOptions(args: string[]): {
 } {
   const out: string[] = [];
   let timeoutMs = DEFAULT_TIMEOUT_MS;
-  let parsingGlobals = true;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-
-    if (!parsingGlobals) {
-      out.push(arg);
-      continue;
-    }
-
-    if (arg === "--") {
-      parsingGlobals = false;
-      continue;
-    }
 
     if (arg === "--timeout") {
       const raw = args[i + 1];
@@ -57,10 +46,6 @@ function parseGlobalOptions(args: string[]): {
     if (arg.startsWith("--timeout=")) {
       timeoutMs = parseTimeoutValue(arg.slice("--timeout=".length));
       continue;
-    }
-
-    if (!arg.startsWith("--")) {
-      parsingGlobals = false;
     }
 
     out.push(arg);

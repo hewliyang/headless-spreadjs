@@ -22,48 +22,50 @@ export async function resize(
 
   await withFile(
     filePath,
-    ({ workbook }) => {
+    ({ file, workbook }) => {
       const sheet = sheetName
         ? workbook.getSheetFromName(sheetName)
         : workbook.getActiveSheet();
 
       if (!sheet) fail(`Sheet not found: ${sheetName ?? "(active)"}`);
 
-      if (options.width !== undefined) {
-        if (options.columns) {
-          const [startStr, endStr] = options.columns.split(":");
-          const startCol = colToIndex(startStr);
-          const endCol = endStr ? colToIndex(endStr) : startCol;
-          for (let c = startCol; c <= endCol; c++) {
-            throwIfAborted(signal);
-            sheet.setColumnWidth(c, options.width);
-          }
-        } else {
-          const colCount = sheet.getColumnCount();
-          for (let c = 0; c < colCount; c++) {
-            throwIfAborted(signal);
-            sheet.setColumnWidth(c, options.width);
+      file.batch(() => {
+        if (options.width !== undefined) {
+          if (options.columns) {
+            const [startStr, endStr] = options.columns.split(":");
+            const startCol = colToIndex(startStr);
+            const endCol = endStr ? colToIndex(endStr) : startCol;
+            for (let c = startCol; c <= endCol; c++) {
+              throwIfAborted(signal);
+              sheet.setColumnWidth(c, options.width);
+            }
+          } else {
+            const colCount = sheet.getColumnCount();
+            for (let c = 0; c < colCount; c++) {
+              throwIfAborted(signal);
+              sheet.setColumnWidth(c, options.width);
+            }
           }
         }
-      }
 
-      if (options.height !== undefined) {
-        if (options.rows) {
-          const [startStr, endStr] = options.rows.split(":");
-          const startRow = parseInt(startStr, 10) - 1;
-          const endRow = endStr ? parseInt(endStr, 10) - 1 : startRow;
-          for (let r = startRow; r <= endRow; r++) {
-            throwIfAborted(signal);
-            sheet.setRowHeight(r, options.height);
-          }
-        } else {
-          const rowCount = sheet.getRowCount();
-          for (let r = 0; r < rowCount; r++) {
-            throwIfAborted(signal);
-            sheet.setRowHeight(r, options.height);
+        if (options.height !== undefined) {
+          if (options.rows) {
+            const [startStr, endStr] = options.rows.split(":");
+            const startRow = parseInt(startStr, 10) - 1;
+            const endRow = endStr ? parseInt(endStr, 10) - 1 : startRow;
+            for (let r = startRow; r <= endRow; r++) {
+              throwIfAborted(signal);
+              sheet.setRowHeight(r, options.height);
+            }
+          } else {
+            const rowCount = sheet.getRowCount();
+            for (let r = 0; r < rowCount; r++) {
+              throwIfAborted(signal);
+              sheet.setRowHeight(r, options.height);
+            }
           }
         }
-      }
+      });
 
       ok({ resized: true });
     },

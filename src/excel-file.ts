@@ -20,6 +20,14 @@ function stripEvalSheet(spread: SpreadWorkbook): void {
   }
 }
 
+type UnknownMethod = (...args: unknown[]) => unknown;
+
+function getMethod(obj: unknown, name: string): UnknownMethod | null {
+  if (!obj || typeof obj !== "object") return null;
+  const value = (obj as Record<string, unknown>)[name];
+  return typeof value === "function" ? (value as UnknownMethod) : null;
+}
+
 function toArrayBuffer(buffer: Buffer): ArrayBuffer {
   return buffer.buffer.slice(
     buffer.byteOffset,
@@ -169,6 +177,8 @@ export function setGC(gc: GCNamespace | null): void {
 
 export class ExcelFile {
   public readonly workbook: SpreadWorkbook;
+  /** The file path this workbook was opened from (if any). */
+  public sourcePath: string | undefined;
 
   constructor(workbook?: SpreadWorkbook) {
     const gc = getGC();
@@ -179,26 +189,43 @@ export class ExcelFile {
   batch<T>(fn: () => T): T;
   batch<T>(fn: () => Promise<T>): Promise<T>;
   batch<T>(fn: () => T | Promise<T>): T | Promise<T> {
+    const suspendPaint = getMethod(this.workbook, "suspendPaint");
+    const resumePaint = getMethod(this.workbook, "resumePaint");
+    const suspendEvent = getMethod(this.workbook, "suspendEvent");
+    const resumeEvent = getMethod(this.workbook, "resumeEvent");
+
+    suspendPaint?.call(this.workbook);
+    suspendEvent?.call(this.workbook);
     this.workbook.suspendCalcService(false);
+
+    const finalize = () => {
+      this.workbook.resumeCalcService(true);
+      resumeEvent?.call(this.workbook);
+      resumePaint?.call(this.workbook);
+    };
 
     try {
       const result = fn();
 
       if (result instanceof Promise) {
-        return result.finally(() => {
-          this.workbook.resumeCalcService(true);
-        });
+        return result.finally(finalize);
       }
 
-      this.workbook.resumeCalcService(true);
+      finalize();
       return result;
     } catch (error) {
-      this.workbook.resumeCalcService(true);
+      finalize();
       throw error;
     }
   }
 
-  async save(filePath: string): Promise<void> {
+  async save(filePath?: string): Promise<void> {
+    filePath ??= this.sourcePath;
+    if (!filePath) {
+      throw new Error(
+        "No file path provided. Pass a path to save() or open the file with ExcelFile.open().",
+      );
+    }
     const bytes = await this.saveToBuffer();
     const dir = path.dirname(filePath);
 
@@ -225,7 +252,9 @@ export class ExcelFile {
     const gc = getGC();
     const bytes = await fs.promises.readFile(filePath);
     const spread = await importWorkbook(toArrayBuffer(bytes), gc);
-    return new ExcelFile(spread);
+    const ef = new ExcelFile(spread);
+    ef.sourcePath = path.resolve(filePath);
+    return ef;
   }
 
   static async openFromBuffer(buffer: Buffer): Promise<ExcelFile> {

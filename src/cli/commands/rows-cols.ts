@@ -27,7 +27,7 @@ export async function rowsCols(
 
   await withFile(
     filePath,
-    ({ workbook }) => {
+    ({ file, workbook }) => {
       const sheet = options.sheet
         ? workbook.getSheetFromName(options.sheet)
         : workbook.getActiveSheet();
@@ -35,8 +35,10 @@ export async function rowsCols(
       if (!sheet) fail(`Sheet not found: ${options.sheet ?? "(active)"}`);
 
       if (op === "unfreeze") {
-        sheet.frozenRowCount(0);
-        sheet.frozenColumnCount(0);
+        file.batch(() => {
+          sheet.frozenRowCount(0);
+          sheet.frozenColumnCount(0);
+        });
         ok({ operation: "unfreeze" });
         return;
       }
@@ -46,12 +48,15 @@ export async function rowsCols(
           fail(
             "freeze requires --ref (e.g. --ref 2 for rows or --ref C for columns)",
           );
-        if (dim === "rows") {
-          sheet.frozenRowCount(parseInt(options.ref, 10));
-        } else {
-          sheet.frozenColumnCount(colToIndex(options.ref) + 1);
-        }
-        ok({ operation: "freeze", dimension: dim, ref: options.ref });
+        const ref = options.ref;
+        file.batch(() => {
+          if (dim === "rows") {
+            sheet.frozenRowCount(parseInt(ref, 10));
+          } else {
+            sheet.frozenColumnCount(colToIndex(ref) + 1);
+          }
+        });
+        ok({ operation: "freeze", dimension: dim, ref });
         return;
       }
 
@@ -62,45 +67,47 @@ export async function rowsCols(
         ? parseInt(options.ref, 10) - 1
         : colToIndex(options.ref);
 
-      switch (op) {
-        case "insert":
-          if (isRow) {
-            sheet.addRows(index, count);
-          } else {
-            sheet.addColumns(index, count);
-          }
-          break;
-
-        case "delete":
-          if (isRow) {
-            sheet.deleteRows(index, count);
-          } else {
-            sheet.deleteColumns(index, count);
-          }
-          break;
-
-        case "hide":
-          for (let i = 0; i < count; i++) {
-            throwIfAborted(signal);
+      file.batch(() => {
+        switch (op) {
+          case "insert":
             if (isRow) {
-              sheet.setRowVisible(index + i, false);
+              sheet.addRows(index, count);
             } else {
-              sheet.setColumnVisible(index + i, false);
+              sheet.addColumns(index, count);
             }
-          }
-          break;
+            break;
 
-        case "unhide":
-          for (let i = 0; i < count; i++) {
-            throwIfAborted(signal);
+          case "delete":
             if (isRow) {
-              sheet.setRowVisible(index + i, true);
+              sheet.deleteRows(index, count);
             } else {
-              sheet.setColumnVisible(index + i, true);
+              sheet.deleteColumns(index, count);
             }
-          }
-          break;
-      }
+            break;
+
+          case "hide":
+            for (let i = 0; i < count; i++) {
+              throwIfAborted(signal);
+              if (isRow) {
+                sheet.setRowVisible(index + i, false);
+              } else {
+                sheet.setColumnVisible(index + i, false);
+              }
+            }
+            break;
+
+          case "unhide":
+            for (let i = 0; i < count; i++) {
+              throwIfAborted(signal);
+              if (isRow) {
+                sheet.setRowVisible(index + i, true);
+              } else {
+                sheet.setColumnVisible(index + i, true);
+              }
+            }
+            break;
+        }
+      });
 
       ok({ operation: op, dimension: dim, ref: options.ref, count });
     },
