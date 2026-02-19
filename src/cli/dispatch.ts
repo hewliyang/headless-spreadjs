@@ -32,6 +32,7 @@ Commands:
   daemon start                               Start the background daemon
   daemon stop                                Stop the background daemon
   daemon status                              Show daemon status
+  daemon flush                               Flush buffered workbook writes
 
 Options:
   --no-daemon                                Skip daemon, run directly

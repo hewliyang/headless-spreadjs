@@ -24,6 +24,7 @@ interface DaemonRuntime {
   ExcelFile: typeof ExcelFile;
   fileCache: FileCache;
   cwd: string;
+  writeThrough: boolean;
 }
 
 const runtimeStore = new AsyncLocalStorage<DaemonRuntime>();
@@ -96,7 +97,18 @@ async function withFileDaemon<T>(
   }
 
   if (options?.save) {
-    rt.fileCache.markDirty(filePath, rt.cwd);
+    if (rt.writeThrough) {
+      try {
+        await cached.file.save(cached.absPath);
+        await rt.fileCache.updateMtime(filePath, rt.cwd);
+      } catch (err) {
+        // Save failed; drop potentially divergent in-memory state.
+        rt.fileCache.invalidate(filePath, rt.cwd);
+        throw err;
+      }
+    } else {
+      rt.fileCache.markDirty(filePath, rt.cwd);
+    }
   }
 
   return result;

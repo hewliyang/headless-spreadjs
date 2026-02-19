@@ -93,6 +93,31 @@ function hsx(
   return exec("tsx", [CLI, ...args], { timeout: 30_000, env: testEnv });
 }
 
+function hsxRaw(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  input?: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn("tsx", [CLI, ...args], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env,
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+    proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+    if (input !== undefined) {
+      proc.stdin.end(input);
+    } else {
+      proc.stdin.end();
+    }
+  });
+}
+
 describe("cli", () => {
   it("create + info", async () => {
     const { stdout } = await hsx(["create", testFile]);
@@ -135,6 +160,24 @@ describe("cli", () => {
     assert.equal(data.cells.B2.value, 4);
     assert.equal(data.cells.B3.value, 5); // formula result
     assert.equal(data.cells.B3.formula, "B2+1");
+  });
+
+  it("get emits complete JSON for large ranges", async () => {
+    const bigFile = path.join(tmpDir, "large-get.xlsx");
+    await hsx(["create", bigFile]);
+    await hsx([
+      "eval",
+      bigFile,
+      "for (let r = 0; r < 120; r++) { for (let c = 0; c < 12; c++) { sheet.setValue(r, c, 'x'.repeat(120)); } }",
+    ]);
+
+    const res = await hsxRaw(["get", bigFile, "A1:L120", "--no-styles"], testEnv);
+    assert.equal(res.code, 0);
+    assert.ok(res.stdout.length > 65_536);
+
+    const data = JSON.parse(res.stdout);
+    assert.equal(data.cellCount, 120 * 12);
+    assert.equal(data.cells.A1.value.length, 120);
   });
 
   it("csv output", async () => {
@@ -241,6 +284,21 @@ describe("cli", () => {
     assert.equal(JSON.parse(getOut).cells.E1.value, "stdin-test");
   });
 
+  it("set via stdin with '-' sentinel", async () => {
+    const cells = [[{ value: "stdin-dash" }]];
+    const { stdout } = await hsx(
+      ["set", testFile, "E2", "-"],
+      JSON.stringify(cells),
+    );
+    assert.deepStrictEqual(JSON.parse(stdout), {
+      written: 1,
+      range: "E2",
+    });
+
+    const { stdout: getOut } = await hsx(["get", testFile, "E2"]);
+    assert.equal(JSON.parse(getOut).cells.E2.value, "stdin-dash");
+  });
+
   it("search", async () => {
     // "Month" and "Rev" were written by the chart test
     const { stdout } = await hsx(["search", testFile, "Month"]);
@@ -280,6 +338,126 @@ describe("cli", () => {
   it("resize columns", async () => {
     // Just verify it doesn't error — width is a visual property
     await hsx(["resize", testFile, "--columns", "A:B", "--width", "120"]);
+  });
+
+  it("daemon flush persists buffered writes to disk", async () => {
+    await hsx(["set", testFile, "F1", '[[{"value":"buffered"}]]']);
+
+    const { stdout: before } = await hsx([
+      "--no-daemon",
+      "get",
+      testFile,
+      "F1",
+      "--no-styles",
+    ]);
+    assert.equal(JSON.parse(before).cellCount, 0);
+
+    const { stdout: flushOut } = await hsx(["daemon", "flush"]);
+    const flush = JSON.parse(flushOut);
+    assert.ok(flush.flushed >= 1);
+    assert.equal(flush.dirtyFiles, 0);
+
+    const { stdout: after } = await hsx([
+      "--no-daemon",
+      "get",
+      testFile,
+      "F1",
+      "--no-styles",
+    ]);
+    assert.equal(JSON.parse(after).cells.F1.value, "buffered");
+  });
+
+  it("daemon status on missing socket does not auto-start", async () => {
+    const missingEnv = {
+      ...testEnv,
+      HSX_SOCKET_PATH: path.join(tmpDir, "missing-status.sock"),
+    };
+
+    const res = await hsxRaw(["daemon", "status"], missingEnv);
+    assert.equal(res.code, 0);
+    assert.deepStrictEqual(JSON.parse(res.stdout), { running: false });
+  });
+
+  it("daemon stop on missing socket does not auto-start", async () => {
+    const missingEnv = {
+      ...testEnv,
+      HSX_SOCKET_PATH: path.join(tmpDir, "missing-stop.sock"),
+    };
+
+    const res = await hsxRaw(["daemon", "stop"], missingEnv);
+    assert.equal(res.code, 1);
+    assert.deepStrictEqual(JSON.parse(res.stdout), {
+      error: "No daemon running",
+    });
+  });
+
+  it("write-through mode saves immediately", async () => {
+    const wtDir = await fs.mkdtemp(path.join(tmpDir, "wt-"));
+    const wtSocket = path.join(wtDir, "daemon.sock");
+    const wtFile = path.join(wtDir, "wt.xlsx");
+    const wtEnv = {
+      ...process.env,
+      HSX_SOCKET_PATH: wtSocket,
+      HSX_WRITE_THROUGH: "1",
+    };
+
+    let wtDaemon: ChildProcess | null = null;
+
+    try {
+      wtDaemon = spawn("tsx", [DAEMON_ENTRY], {
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+        env: wtEnv,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          wtDaemon?.kill();
+          reject(new Error("write-through daemon failed to start"));
+        }, 30_000);
+
+        wtDaemon?.on("message", (msg: unknown) => {
+          const m = msg as Record<string, unknown>;
+          if (m?.ready) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+
+        wtDaemon?.on("error", (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+        wtDaemon?.on("exit", (code) => {
+          clearTimeout(timeout);
+          reject(new Error(`write-through daemon exited early with code ${code}`));
+        });
+      });
+
+      await exec("tsx", [CLI, "create", wtFile], { env: wtEnv, timeout: 30_000 });
+      await exec("tsx", [CLI, "set", wtFile, "A1", '[[{"value":"sync"}]]'], {
+        env: wtEnv,
+        timeout: 30_000,
+      });
+
+      const { stdout } = await exec(
+        "tsx",
+        [CLI, "--no-daemon", "get", wtFile, "A1", "--no-styles"],
+        { env: wtEnv, timeout: 30_000 },
+      );
+      assert.equal(JSON.parse(stdout).cells.A1.value, "sync");
+
+      const { stdout: statusOut } = await exec("tsx", [CLI, "daemon", "status"], {
+        env: wtEnv,
+        timeout: 30_000,
+      });
+      assert.equal(JSON.parse(statusOut).writeThrough, true);
+    } finally {
+      await hsxRaw(["daemon", "stop"], wtEnv);
+      try {
+        wtDaemon?.kill();
+      } catch {}
+      await fs.rm(wtDir, { recursive: true, force: true });
+    }
   });
 
   it("errors on nonexistent file", async () => {

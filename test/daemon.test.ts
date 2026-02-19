@@ -156,6 +156,7 @@ describe("daemon", () => {
     assert.ok(typeof status.pid === "number");
     assert.ok(status.uptime >= 0);
     assert.ok(typeof status.cachedFiles === "number");
+    assert.equal(status.writeThrough, false);
   });
 
   it("create + info", async () => {
@@ -294,6 +295,32 @@ describe("daemon", () => {
     assert.equal(JSON.parse(responses[0].stdout).cells.A1.value, "Name");
     assert.equal(JSON.parse(responses[1].stdout).cells.B2.value, 4);
     assert.equal(JSON.parse(responses[2].stdout).cells.A2.value, "Alice");
+  });
+
+  it("flush writes dirty files", async () => {
+    const file = path.join(tmpDir, "flush.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+    await sendCommand(
+      socketPath,
+      ["set", file, "A1", '[[{"value":"flush-me"}]]'],
+      tmpDir,
+    );
+
+    const before = JSON.parse(
+      (await sendCommand(socketPath, ["daemon", "status"], tmpDir)).stdout,
+    );
+    assert.ok(before.dirtyFiles >= 1);
+
+    const flush = await sendCommand(socketPath, ["daemon", "flush"], tmpDir);
+    assert.equal(flush.exitCode, 0);
+    const flushData = JSON.parse(flush.stdout);
+    assert.ok(flushData.flushed >= 1);
+    assert.equal(flushData.dirtyFiles, 0);
+
+    const after = JSON.parse(
+      (await sendCommand(socketPath, ["daemon", "status"], tmpDir)).stdout,
+    );
+    assert.equal(after.dirtyFiles, 0);
   });
 
   it("file cache serves subsequent reads", async () => {

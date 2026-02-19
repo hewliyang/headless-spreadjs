@@ -12,6 +12,11 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_CACHE_SIZE = 10;
 const PROBE_TIMEOUT_MS = 3_000;
 
+function envEnabled(value: string | undefined): boolean {
+  if (!value) return false;
+  return /^(1|true|yes|on)$/i.test(value.trim());
+}
+
 export function getSocketPath(): string {
   if (process.env.HSX_SOCKET_PATH) return process.env.HSX_SOCKET_PATH;
   return process.platform === "win32"
@@ -24,7 +29,7 @@ export function getLogPath(): string {
   if (socketPath.startsWith("\\\\.\\pipe\\")) {
     return join(homedir(), ".hsx-daemon.log");
   }
-  return socketPath.replace(/\.sock$/, "") + ".log";
+  return `${socketPath.replace(/\.sock$/, "")}.log`;
 }
 
 /**
@@ -73,6 +78,7 @@ export async function startDaemon(): Promise<void> {
   const { GC, ExcelFile } = await init();
   const cacheSize =
     parseInt(process.env.HSX_CACHE_SIZE ?? "", 10) || DEFAULT_CACHE_SIZE;
+  const writeThrough = envEnabled(process.env.HSX_WRITE_THROUGH);
   const fileCache = new FileCache(cacheSize);
 
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -132,6 +138,21 @@ export async function startDaemon(): Promise<void> {
       };
     }
 
+    if (request.argv[0] === "daemon" && request.argv[1] === "flush") {
+      const flushed = await fileCache.flushDirty();
+      if (flushed > 0) {
+        daemonLog(`flushed ${flushed} dirty file(s) via explicit request`);
+      }
+      return {
+        stdout: `${JSON.stringify({
+          flushed,
+          dirtyFiles: fileCache.dirtyCount,
+        })}\n`,
+        stderr: "",
+        exitCode: 0,
+      };
+    }
+
     if (request.argv[0] === "daemon" && request.argv[1] === "status") {
       const mem = process.memoryUsage();
       return {
@@ -140,6 +161,7 @@ export async function startDaemon(): Promise<void> {
           cachedFiles: fileCache.size,
           dirtyFiles: fileCache.dirtyCount,
           maxCacheSize: fileCache.maxCacheSize,
+          writeThrough,
           uptime: Math.floor(process.uptime()),
           heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
           rssMB: Math.round(mem.rss / 1024 / 1024),
@@ -150,7 +172,13 @@ export async function startDaemon(): Promise<void> {
       };
     }
 
-    const runtime = { GC, ExcelFile, fileCache, cwd: request.cwd };
+    const runtime = {
+      GC,
+      ExcelFile,
+      fileCache,
+      cwd: request.cwd,
+      writeThrough,
+    };
     const io = createIoContext(request.stdin);
 
     try {

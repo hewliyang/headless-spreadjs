@@ -94,17 +94,23 @@ On first use, the thin client auto-spawns the daemon in the background. Subseque
 
 If the daemon fails to start or is unreachable, the CLI falls back to direct mode seamlessly.
 
+By default, daemon writes are **buffered in memory** for speed. This means a successful write command may not be immediately visible to other processes reading the XLSX on disk until a flush/eviction/shutdown happens.
+
 ```bash
 hsx daemon start     # Start manually (usually automatic)
-hsx daemon status    # Show pid, uptime, memory, cached files
-hsx daemon stop      # Shut down the daemon
+hsx daemon status    # Show pid, uptime, memory, cached/dirty files
+hsx daemon flush     # Flush buffered writes to disk now
+hsx daemon stop      # Flush + shut down the daemon
 hsx --no-daemon get file.xlsx A1   # Bypass daemon, run directly
 ```
+
+`hsx daemon status|stop|flush` only talk to an existing daemon; they do not auto-start one.
 
 | Environment variable | Default | Description |
 |---|---|---|
 | `HSX_SOCKET_PATH` | `~/.hsx-daemon.sock` (Unix) / `\\.\pipe\hsx-daemon` (Windows) | Custom socket path — set per-project to run multiple daemons |
 | `HSX_CACHE_SIZE` | `10` | Max number of workbooks held in the LRU cache |
+| `HSX_WRITE_THROUGH` | `0` | Set to `1`/`true`/`yes`/`on` to save immediately after each write (disable buffering) |
 
 ## SDK API
 

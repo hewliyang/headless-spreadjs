@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { spawnDaemon, tryDaemon } from "./client.js";
+import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
 import { dispatch, USAGE } from "./dispatch.js";
 import { createIoContext, runWithIo } from "./output.js";
 
@@ -7,19 +7,63 @@ function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
 }
 
+async function writeTo(
+  stream: NodeJS.WriteStream,
+  data: string,
+): Promise<void> {
+  if (!data) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException) => {
+      stream.off("error", onError);
+      if (err.code === "EPIPE") {
+        resolve();
+        return;
+      }
+      reject(err);
+    };
+
+    stream.once("error", onError);
+    stream.write(data, () => {
+      stream.off("error", onError);
+      resolve();
+    });
+  });
+}
+
+async function flushStdStreams(): Promise<void> {
+  await Promise.all([
+    new Promise<void>((resolve) => process.stdout.write("", () => resolve())),
+    new Promise<void>((resolve) => process.stderr.write("", () => resolve())),
+  ]);
+}
+
+async function exitWith(
+  code: number,
+  output?: { stdout?: string; stderr?: string },
+): Promise<never> {
+  if (output?.stdout) {
+    await writeTo(process.stdout, output.stdout);
+  }
+  if (output?.stderr) {
+    await writeTo(process.stderr, output.stderr);
+  }
+
+  await flushStdStreams();
+  process.exit(code);
+}
+
 export async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
-    console.log(USAGE);
-    process.exit(0);
+    return exitWith(0, { stdout: `${USAGE}\n` });
   }
 
   if (args[0] === "--version" || args[0] === "-v") {
     const require = createRequire(import.meta.url);
     const { version } = require("../../package.json") as { version: string };
-    console.log(version);
-    process.exit(0);
+    return exitWith(0, { stdout: `${version}\n` });
   }
 
   const noDaemon = hasFlag(args, "--no-daemon");
@@ -30,41 +74,42 @@ export async function main(): Promise<void> {
     if (sub === "start") {
       try {
         await spawnDaemon();
-        console.log(JSON.stringify({ daemon: "started" }));
+        return exitWith(0, { stdout: `${JSON.stringify({ daemon: "started" })}\n` });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(JSON.stringify({ error: message }));
-        process.exit(1);
+        return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
       }
-      return;
     }
 
-    if (sub === "stop" || sub === "status") {
-      const result = await tryDaemon(filteredArgs, process.cwd());
+    if (sub === "stop" || sub === "status" || sub === "flush") {
+      const result = await tryExistingDaemon(filteredArgs, process.cwd());
       if (result) {
-        if (result.stdout) process.stdout.write(result.stdout);
-        if (result.stderr) process.stderr.write(result.stderr);
-        process.exit(result.exitCode);
+        return exitWith(result.exitCode, {
+          stdout: result.stdout,
+          stderr: result.stderr,
+        });
       }
 
-      if (sub === "stop") {
-        console.log(JSON.stringify({ error: "No daemon running" }));
-      } else {
-        console.log(JSON.stringify({ running: false }));
+      if (sub === "status") {
+        return exitWith(0, { stdout: `${JSON.stringify({ running: false })}\n` });
       }
-      process.exit(sub === "stop" ? 1 : 0);
+
+      return exitWith(1, {
+        stdout: `${JSON.stringify({ error: "No daemon running" })}\n`,
+      });
     }
 
-    console.error("Usage: hsx daemon start|stop|status");
-    process.exit(1);
+    return exitWith(1, { stderr: "Usage: hsx daemon start|stop|status|flush\n" });
   }
 
   if (!noDaemon) {
     let stdin: string | undefined;
     const command = filteredArgs[0];
+    const setJsonArg = filteredArgs[3];
+    const evalCodeArg = filteredArgs[2];
     const needsStdin =
-      (command === "set" && !filteredArgs[3]) ||
-      (command === "eval" && !filteredArgs[2]);
+      (command === "set" && (!setJsonArg || setJsonArg === "-")) ||
+      (command === "eval" && (!evalCodeArg || evalCodeArg === "-"));
 
     if (needsStdin && !process.stdin.isTTY) {
       const chunks: Buffer[] = [];
@@ -76,25 +121,22 @@ export async function main(): Promise<void> {
 
     const result = await tryDaemon(filteredArgs, process.cwd(), stdin);
     if (result) {
-      if (result.stdout) process.stdout.write(result.stdout);
-      if (result.stderr) process.stderr.write(result.stderr);
-      process.exit(result.exitCode);
+      return exitWith(result.exitCode, {
+        stdout: result.stdout,
+        stderr: result.stderr,
+      });
     }
 
-    if (stdin) {
+    if (stdin !== undefined) {
       const io = createIoContext(stdin);
       try {
         await runWithIo(io, () => dispatch(filteredArgs));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         io.stderr += `${JSON.stringify({ error: message })}\n`;
-        if (io.stdout) process.stdout.write(io.stdout);
-        if (io.stderr) process.stderr.write(io.stderr);
-        process.exit(1);
+        return exitWith(1, { stdout: io.stdout, stderr: io.stderr });
       }
-      if (io.stdout) process.stdout.write(io.stdout);
-      if (io.stderr) process.stderr.write(io.stderr);
-      process.exit(0);
+      return exitWith(0, { stdout: io.stdout, stderr: io.stderr });
     }
   }
 
@@ -102,8 +144,8 @@ export async function main(): Promise<void> {
     await dispatch(filteredArgs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`${JSON.stringify({ error: message })}\n`);
-    process.exit(1);
+    return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
   }
-  process.exit(0);
+
+  return exitWith(0);
 }
