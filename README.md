@@ -102,9 +102,12 @@ hsx daemon status    # Show pid, uptime, memory, cached/dirty files
 hsx daemon flush     # Flush buffered writes to disk now
 hsx daemon stop      # Flush + shut down the daemon
 hsx --no-daemon get file.xlsx A1   # Bypass daemon, run directly
+hsx --timeout 120 eval file.xlsx '/* long-running script */'   # 120s timeout
 ```
 
 `hsx daemon status|stop|flush` only talk to an existing daemon; they do not auto-start one.
+
+All CLI commands support a global `--timeout` option (default `30s`). Timeout values are seconds only (for example: `--timeout 45`).
 
 | Environment variable | Default | Description |
 |---|---|---|

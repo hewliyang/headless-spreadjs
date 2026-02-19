@@ -8,6 +8,12 @@ import { getLogPath, getSocketPath } from "./daemon.js";
 const CLIENT_TIMEOUT_MS = 30_000;
 const SPAWN_TIMEOUT_MS = 15_000;
 
+function isDaemonUnavailableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ECONNREFUSED";
+}
+
 export type DaemonCommandResult = {
   stdout: string;
   stderr: string;
@@ -19,6 +25,7 @@ async function sendCommand(
   argv: string[],
   cwd: string,
   stdin?: string,
+  timeoutMs = CLIENT_TIMEOUT_MS,
 ): Promise<DaemonCommandResult> {
   return new Promise((resolve, reject) => {
     const socket = connect({ path: socketPath }, () => {
@@ -30,7 +37,7 @@ async function sendCommand(
     const timeout = setTimeout(() => {
       socket.destroy();
       reject(new Error("Daemon request timed out"));
-    }, CLIENT_TIMEOUT_MS);
+    }, timeoutMs);
 
     socket.on("data", (data) => {
       buffer += data.toString();
@@ -61,7 +68,7 @@ async function sendCommand(
   });
 }
 
-export async function spawnDaemon(): Promise<void> {
+export async function spawnDaemon(timeoutMs = SPAWN_TIMEOUT_MS): Promise<void> {
   const thisFile = fileURLToPath(import.meta.url);
   const cliDir = dirname(thisFile);
   const daemonEntry = join(cliDir, "daemon-entry.js");
@@ -75,12 +82,12 @@ export async function spawnDaemon(): Promise<void> {
       env: { ...process.env },
     });
 
-    closeSync(logFd); // child inherited the fd, parent can release
+    closeSync(logFd);
 
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error("Daemon failed to start within timeout"));
-    }, SPAWN_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.on("message", (msg: unknown) => {
       const m = msg as Record<string, unknown>;
@@ -104,33 +111,30 @@ export async function spawnDaemon(): Promise<void> {
   });
 }
 
-/**
- * Try to run a command via an already-running daemon.
- * Returns null if no daemon is reachable at the socket path.
- */
 export async function tryExistingDaemon(
   argv: string[],
   cwd: string,
   stdin?: string,
+  timeoutMs = CLIENT_TIMEOUT_MS,
 ): Promise<DaemonCommandResult | null> {
   const socketPath = getSocketPath();
   try {
-    return await sendCommand(socketPath, argv, cwd, stdin);
-  } catch {
-    return null;
+    return await sendCommand(socketPath, argv, cwd, stdin, timeoutMs);
+  } catch (err) {
+    if (isDaemonUnavailableError(err)) {
+      return null;
+    }
+    throw err;
   }
 }
 
-/**
- * Try to run a command via the daemon. Returns null if daemon is
- * unavailable and couldn't be started.
- */
 export async function tryDaemon(
   argv: string[],
   cwd: string,
   stdin?: string,
+  timeoutMs = CLIENT_TIMEOUT_MS,
 ): Promise<DaemonCommandResult | null> {
-  const existing = await tryExistingDaemon(argv, cwd, stdin);
+  const existing = await tryExistingDaemon(argv, cwd, stdin, timeoutMs);
   if (existing) {
     return existing;
   }
@@ -138,9 +142,17 @@ export async function tryDaemon(
   const socketPath = getSocketPath();
 
   try {
-    await spawnDaemon();
-    return await sendCommand(socketPath, argv, cwd, stdin);
+    await spawnDaemon(timeoutMs);
   } catch {
-    return null; // Fall back to direct mode
+    return null;
+  }
+
+  try {
+    return await sendCommand(socketPath, argv, cwd, stdin, timeoutMs);
+  } catch (err) {
+    if (isDaemonUnavailableError(err)) {
+      return null;
+    }
+    throw err;
   }
 }

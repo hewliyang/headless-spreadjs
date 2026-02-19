@@ -36,6 +36,7 @@ Commands:
 
 Options:
   --no-daemon                                Skip daemon, run directly
+  --timeout <seconds>                        Command timeout (default: 30s)
 
 Reference format:
   Sheet1!A1:C10    range on named sheet
@@ -63,6 +64,40 @@ function requireArg(args: string[], index: number, usage: string): string {
     throw new Error(`Usage: hsx ${usage}`);
   }
   return value;
+}
+
+function parseOptionalInt(
+  value: string | undefined,
+  optionName: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Invalid value for ${optionName}: ${value}`);
+  }
+  return parsed;
+}
+
+function parseOptionalFloat(
+  value: string | undefined,
+  optionName: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseFloat(value);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Invalid value for ${optionName}: ${value}`);
+  }
+  return parsed;
+}
+
+function parseClearType(
+  value: string | undefined,
+): "values" | "styles" | "all" {
+  if (!value) return "values";
+  if (value === "values" || value === "styles" || value === "all") {
+    return value;
+  }
+  throw new Error(`Invalid value for --type: ${value}`);
 }
 
 export async function dispatch(args: string[]): Promise<void> {
@@ -108,11 +143,7 @@ export async function dispatch(args: string[]): Promise<void> {
     case "clear": {
       const file = requireArg(rest, 0, "clear <file> <ref>");
       const ref = requireArg(rest, 1, "clear <file> <ref>");
-      const clearType = (flag(rest, "--type") ?? "values") as
-        | "values"
-        | "styles"
-        | "all";
-      await clear(file, ref, clearType);
+      await clear(file, ref, parseClearType(flag(rest, "--type")));
       break;
     }
 
@@ -123,9 +154,7 @@ export async function dispatch(args: string[]): Promise<void> {
         sheet: flag(rest, "--sheet"),
         matchCase: hasFlag(rest, "--match-case"),
         regex: hasFlag(rest, "--regex"),
-        maxResults: flag(rest, "--max")
-          ? parseInt(flag(rest, "--max")!, 10)
-          : undefined,
+        maxResults: parseOptionalInt(flag(rest, "--max"), "--max"),
       });
       break;
     }
@@ -153,9 +182,7 @@ export async function dispatch(args: string[]): Promise<void> {
       await rowsCols(file, op, dim, {
         sheet: flag(rest, "--sheet"),
         ref: flag(rest, "--ref"),
-        count: flag(rest, "--count")
-          ? parseInt(flag(rest, "--count")!, 10)
-          : undefined,
+        count: parseOptionalInt(flag(rest, "--count"), "--count"),
       });
       break;
     }
@@ -165,12 +192,8 @@ export async function dispatch(args: string[]): Promise<void> {
       await resize(file, flag(rest, "--sheet"), {
         columns: flag(rest, "--columns"),
         rows: flag(rest, "--rows"),
-        width: flag(rest, "--width")
-          ? parseFloat(flag(rest, "--width")!)
-          : undefined,
-        height: flag(rest, "--height")
-          ? parseFloat(flag(rest, "--height")!)
-          : undefined,
+        width: parseOptionalFloat(flag(rest, "--width"), "--width"),
+        height: parseOptionalFloat(flag(rest, "--height"), "--height"),
       });
       break;
     }

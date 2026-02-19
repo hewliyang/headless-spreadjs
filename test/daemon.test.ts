@@ -48,7 +48,6 @@ function sendCommand(
   });
 }
 
-/** Send multiple requests on a single connection (pipelining). */
 function sendPipelined(
   socketPath: string,
   requests: { argv: string[]; cwd: string; stdin?: string }[],
@@ -266,7 +265,6 @@ describe("daemon", () => {
       tmpDir,
     );
 
-    // Each response is exactly one JSON line — no leakage
     assert.equal(res1.stdout.trim().split("\n").length, 1);
     assert.equal(res2.stdout.trim().split("\n").length, 1);
     assert.equal(res1.stderr, "");
@@ -358,7 +356,6 @@ describe("daemon", () => {
       (await sendCommand(socketPath, ["daemon", "status"], tmpDir)).stdout,
     );
 
-    // This file was already opened above — should be cached
     await sendCommand(
       socketPath,
       ["get", file, "A1", "--no-styles"],
@@ -369,7 +366,6 @@ describe("daemon", () => {
       (await sendCommand(socketPath, ["daemon", "status"], tmpDir)).stdout,
     );
 
-    // Cache size should not have grown (file was already cached)
     assert.equal(statusBefore.cachedFiles, statusAfter.cachedFiles);
   });
 

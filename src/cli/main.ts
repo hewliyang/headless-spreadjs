@@ -3,39 +3,120 @@ import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
 import { dispatch, USAGE } from "./dispatch.js";
 import { createIoContext, runWithIo } from "./output.js";
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
+}
+
+function parseTimeoutValue(raw: string): number {
+  const value = raw.trim();
+  if (!/^\d+(\.\d+)?$/.test(value)) {
+    throw new Error("Invalid --timeout value (expected seconds)");
+  }
+
+  const seconds = Number.parseFloat(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error("Invalid --timeout value (expected seconds)");
+  }
+  return Math.floor(seconds * 1000);
+}
+
+function parseGlobalOptions(args: string[]): {
+  args: string[];
+  timeoutMs: number;
+} {
+  const out: string[] = [];
+  let timeoutMs = DEFAULT_TIMEOUT_MS;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--timeout") {
+      const raw = args[i + 1];
+      if (!raw || raw.startsWith("--")) {
+        throw new Error("Usage: --timeout <seconds>");
+      }
+      timeoutMs = parseTimeoutValue(raw);
+      i++;
+      continue;
+    }
+
+    if (arg.startsWith("--timeout=")) {
+      timeoutMs = parseTimeoutValue(arg.slice("--timeout=".length));
+      continue;
+    }
+
+    out.push(arg);
+  }
+
+  return { args: out, timeoutMs };
+}
+
+async function runWithTimeout<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `Command timed out after ${Math.ceil(timeoutMs / 1000)}s`,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function writeTo(
   stream: NodeJS.WriteStream,
   data: string,
 ): Promise<void> {
-  if (!data) return;
-
   await new Promise<void>((resolve, reject) => {
-    const onError = (err: NodeJS.ErrnoException) => {
+    let settled = false;
+
+    const finish = (err?: NodeJS.ErrnoException | null) => {
+      if (settled) return;
+      settled = true;
       stream.off("error", onError);
-      if (err.code === "EPIPE") {
+
+      if (
+        err?.code === "EPIPE" ||
+        err?.message?.toUpperCase().includes("EPIPE")
+      ) {
         resolve();
         return;
       }
-      reject(err);
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
     };
 
+    const onError = (err: NodeJS.ErrnoException) => finish(err);
+
     stream.once("error", onError);
-    stream.write(data, () => {
-      stream.off("error", onError);
-      resolve();
-    });
+    try {
+      stream.write(data, (err?: Error | null) => {
+        finish((err as NodeJS.ErrnoException | null | undefined) ?? null);
+      });
+    } catch (err) {
+      finish(err as NodeJS.ErrnoException);
+    }
   });
 }
 
 async function flushStdStreams(): Promise<void> {
-  await Promise.all([
-    new Promise<void>((resolve) => process.stdout.write("", () => resolve())),
-    new Promise<void>((resolve) => process.stderr.write("", () => resolve())),
-  ]);
+  await Promise.all([writeTo(process.stdout, ""), writeTo(process.stderr, "")]);
 }
 
 async function exitWith(
@@ -54,7 +135,17 @@ async function exitWith(
 }
 
 export async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  let args: string[];
+  let timeoutMs: number;
+
+  try {
+    const parsed = parseGlobalOptions(process.argv.slice(2));
+    args = parsed.args;
+    timeoutMs = parsed.timeoutMs;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
+  }
 
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     return exitWith(0, { stdout: `${USAGE}\n` });
@@ -73,7 +164,7 @@ export async function main(): Promise<void> {
     const sub = filteredArgs[1];
     if (sub === "start") {
       try {
-        await spawnDaemon();
+        await spawnDaemon(timeoutMs);
         return exitWith(0, {
           stdout: `${JSON.stringify({ daemon: "started" })}\n`,
         });
@@ -86,7 +177,12 @@ export async function main(): Promise<void> {
     }
 
     if (sub === "stop" || sub === "status" || sub === "flush") {
-      const result = await tryExistingDaemon(filteredArgs, process.cwd());
+      const result = await tryExistingDaemon(
+        filteredArgs,
+        process.cwd(),
+        undefined,
+        timeoutMs,
+      );
       if (result) {
         return exitWith(result.exitCode, {
           stdout: result.stdout,
@@ -127,7 +223,12 @@ export async function main(): Promise<void> {
       stdin = Buffer.concat(chunks).toString("utf-8").trim();
     }
 
-    const result = await tryDaemon(filteredArgs, process.cwd(), stdin);
+    const result = await tryDaemon(
+      filteredArgs,
+      process.cwd(),
+      stdin,
+      timeoutMs,
+    );
     if (result) {
       return exitWith(result.exitCode, {
         stdout: result.stdout,
@@ -138,7 +239,10 @@ export async function main(): Promise<void> {
     if (stdin !== undefined) {
       const io = createIoContext(stdin);
       try {
-        await runWithIo(io, () => dispatch(filteredArgs));
+        await runWithTimeout(
+          () => Promise.resolve(runWithIo(io, () => dispatch(filteredArgs))),
+          timeoutMs,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         io.stderr += `${JSON.stringify({ error: message })}\n`;
@@ -149,7 +253,7 @@ export async function main(): Promise<void> {
   }
 
   try {
-    await dispatch(filteredArgs);
+    await runWithTimeout(() => dispatch(filteredArgs), timeoutMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });

@@ -1,11 +1,3 @@
-/**
- * Lifecycle wrapper: init → open/create → execute → save → dispose.
- *
- * In daemon mode, uses shared runtime and file cache instead of
- * init/dispose per call. The runtime is scoped per-request via
- * AsyncLocalStorage.
- */
-
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolve } from "node:path";
 import { type ExcelFile, init } from "../index.js";
@@ -18,7 +10,6 @@ export interface FileContext {
   GC: GCNamespace;
 }
 
-/** Daemon shared state — scoped per-request via AsyncLocalStorage. */
 interface DaemonRuntime {
   GC: GCNamespace;
   ExcelFile: typeof ExcelFile;
@@ -29,9 +20,6 @@ interface DaemonRuntime {
 
 const runtimeStore = new AsyncLocalStorage<DaemonRuntime>();
 
-/**
- * Run `fn` with the given DaemonRuntime scoped to the async context.
- */
 export function runWithDaemonRuntime<T>(
   runtime: DaemonRuntime,
   fn: () => T | Promise<T>,
@@ -74,7 +62,6 @@ async function withFileDaemon<T>(
 ): Promise<T> {
   const absPath = resolve(rt.cwd, filePath);
 
-  // Try cache first
   let cached = await rt.fileCache.get(filePath, rt.cwd);
   if (!cached) {
     const file = await rt.ExcelFile.open(absPath);
@@ -92,10 +79,6 @@ async function withFileDaemon<T>(
       GC: rt.GC,
     });
   } catch (err) {
-    // fn() may have partially mutated the in-memory workbook.
-    // If this file wasn't dirty before request execution, evict it so the next
-    // request re-reads from disk. If it was already dirty, keep it to preserve
-    // previously acknowledged buffered writes.
     if (!wasDirty) {
       rt.fileCache.invalidate(filePath, rt.cwd);
     }
@@ -108,7 +91,6 @@ async function withFileDaemon<T>(
         await cached.file.save(cached.absPath);
         await rt.fileCache.updateMtime(filePath, rt.cwd);
       } catch (err) {
-        // Save failed; drop potentially divergent in-memory state.
         rt.fileCache.invalidate(filePath, rt.cwd);
         throw err;
       }
@@ -132,12 +114,11 @@ export async function withNewFile<T>(
   const { GC, ExcelFile: EF, dispose } = await init();
   try {
     const file = new EF();
-    let result: T | undefined;
-    if (fn) {
-      result = await fn({ file, workbook: file.workbook, GC });
-    }
+    const result = fn
+      ? await fn({ file, workbook: file.workbook, GC })
+      : undefined;
     await file.save(filePath);
-    return result as T;
+    return result;
   } finally {
     dispose();
   }
@@ -150,13 +131,11 @@ async function withNewFileDaemon<T>(
 ): Promise<T | undefined> {
   const absPath = resolve(rt.cwd, filePath);
   const file = new rt.ExcelFile();
-  let result: T | undefined;
-  if (fn) {
-    result = await fn({ file, workbook: file.workbook, GC: rt.GC });
-  }
+  const result = fn
+    ? await fn({ file, workbook: file.workbook, GC: rt.GC })
+    : undefined;
   await file.save(absPath);
-  // Cache the newly created file
   await rt.fileCache.put(filePath, rt.cwd, file);
   await rt.fileCache.updateMtime(filePath, rt.cwd);
-  return result as T;
+  return result;
 }

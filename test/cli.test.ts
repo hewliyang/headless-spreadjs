@@ -22,7 +22,6 @@ beforeAll(async () => {
   socketPath = path.join(tmpDir, "cli-test-daemon.sock");
   testEnv = { ...process.env, HSX_SOCKET_PATH: socketPath };
 
-  // Pre-start daemon so CLI calls go through the daemon client path
   daemonProc = spawn("tsx", [DAEMON_ENTRY], {
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     env: testEnv,
@@ -54,7 +53,6 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  // Stop daemon via CLI (tests the stop path too)
   try {
     await exec("tsx", [CLI, "daemon", "stop"], {
       env: testEnv,
@@ -158,7 +156,7 @@ describe("cli", () => {
     assert.equal(data.cellCount, 6);
     assert.equal(data.cells.A1.value, "Name");
     assert.equal(data.cells.B2.value, 4);
-    assert.equal(data.cells.B3.value, 5); // formula result
+    assert.equal(data.cells.B3.value, 5);
     assert.equal(data.cells.B3.formula, "B2+1");
   });
 
@@ -195,7 +193,6 @@ describe("cli", () => {
     const data = JSON.parse(stdout);
     assert.equal(data.cellCount, 0);
 
-    // B3 formula should now give 0+1=1 (B2 cleared → 0)
     const { stdout: b3Out } = await hsx(["get", testFile, "B3"]);
     const b3 = JSON.parse(b3Out);
     assert.equal(b3.cells.B3.value, 1);
@@ -300,7 +297,6 @@ describe("cli", () => {
   });
 
   it("search", async () => {
-    // "Month" and "Rev" were written by the chart test
     const { stdout } = await hsx(["search", testFile, "Month"]);
     const data = JSON.parse(stdout);
     assert.ok(data.totalFound >= 1);
@@ -322,21 +318,18 @@ describe("cli", () => {
   });
 
   it("insert and delete rows", async () => {
-    // Insert a row at row 2
     await hsx(["rc", testFile, "insert", "rows", "--ref", "2"]);
     const { stdout } = await hsx(["get", testFile, "A2", "--no-styles"]);
     const data = JSON.parse(stdout);
-    assert.equal(data.cellCount, 0); // inserted row is empty
+    assert.equal(data.cellCount, 0);
 
-    // Delete it back
     await hsx(["rc", testFile, "delete", "rows", "--ref", "2"]);
     const { stdout: after } = await hsx(["get", testFile, "A2", "--no-styles"]);
     const afterData = JSON.parse(after);
-    assert.ok(afterData.cells.A2); // original data is back
+    assert.ok(afterData.cells.A2);
   });
 
   it("resize columns", async () => {
-    // Just verify it doesn't error — width is a visual property
     await hsx(["resize", testFile, "--columns", "A:B", "--width", "120"]);
   });
 
@@ -365,6 +358,38 @@ describe("cli", () => {
       "--no-styles",
     ]);
     assert.equal(JSON.parse(after).cells.F1.value, "buffered");
+  });
+
+  it("supports global --timeout option", async () => {
+    const { stdout } = await hsx(["--timeout", "30", "info", testFile]);
+    const info = JSON.parse(stdout);
+    assert.equal(info.sheets.length, 1);
+  });
+
+  it("rejects invalid --timeout value", async () => {
+    const res1 = await hsxRaw(["--timeout", "abc", "info", testFile], testEnv);
+    assert.equal(res1.code, 1);
+    assert.ok(res1.stderr.includes("error"));
+
+    const res2 = await hsxRaw(["--timeout", "2s", "info", testFile], testEnv);
+    assert.equal(res2.code, 1);
+    assert.ok(res2.stderr.includes("error"));
+  });
+
+  it("times out long-running direct commands", async () => {
+    const res = await hsxRaw(
+      [
+        "--no-daemon",
+        "--timeout",
+        "1",
+        "eval",
+        testFile,
+        "await new Promise((r) => setTimeout(r, 1500)); return 1;",
+      ],
+      testEnv,
+    );
+    assert.equal(res.code, 1);
+    assert.ok(res.stderr.includes("timed out"));
   });
 
   it("daemon status on missing socket does not auto-start", async () => {

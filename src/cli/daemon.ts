@@ -17,6 +17,12 @@ function envEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/i.test(value.trim());
 }
 
+function envPositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -36,10 +42,6 @@ export function getLogPath(): string {
   return `${socketPath.replace(/\.sock$/, "")}.log`;
 }
 
-/**
- * Probe the socket to check if a daemon is already listening.
- * Returns true if a connection succeeds within PROBE_TIMEOUT_MS.
- */
 function isDaemonListening(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const probe = connect({ path: socketPath });
@@ -47,11 +49,13 @@ function isDaemonListening(socketPath: string): Promise<boolean> {
       probe.destroy();
       resolve(false);
     }, PROBE_TIMEOUT_MS);
+
     probe.on("connect", () => {
       clearTimeout(timeout);
       probe.end();
       resolve(true);
     });
+
     probe.on("error", () => {
       clearTimeout(timeout);
       resolve(false);
@@ -65,8 +69,6 @@ type DaemonResponse = { stdout: string; stderr: string; exitCode: number };
 export async function startDaemon(): Promise<void> {
   const socketPath = getSocketPath();
 
-  // Clean up stale socket from a previous crash (Unix only — named pipes
-  // on Windows don't leave files behind).
   if (process.platform !== "win32" && existsSync(socketPath)) {
     if (await isDaemonListening(socketPath)) {
       process.stderr.write(
@@ -80,14 +82,15 @@ export async function startDaemon(): Promise<void> {
   }
 
   const { GC, ExcelFile } = await init();
-  const cacheSize =
-    parseInt(process.env.HSX_CACHE_SIZE ?? "", 10) || DEFAULT_CACHE_SIZE;
+  const cacheSize = envPositiveInt(
+    process.env.HSX_CACHE_SIZE,
+    DEFAULT_CACHE_SIZE,
+  );
   const writeThrough = envEnabled(process.env.HSX_WRITE_THROUGH);
   const fileCache = new FileCache(cacheSize);
 
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let activeConnections = 0;
-
   const server = createServer(handleConnection);
 
   function daemonLog(msg: string): void {
@@ -95,7 +98,7 @@ export async function startDaemon(): Promise<void> {
     process.stderr.write(`[hsx-daemon ${ts}] ${msg}\n`);
   }
 
-  function resetIdleTimer() {
+  function resetIdleTimer(): void {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       if (activeConnections === 0) {
@@ -143,7 +146,7 @@ export async function startDaemon(): Promise<void> {
   let queue: Promise<void> = Promise.resolve();
   function enqueue(fn: () => Promise<void>): Promise<void> {
     const task = queue
-      .catch((err) => daemonLog(`queue error: ${err}`))
+      .catch((err) => daemonLog(`queue error: ${errorMessage(err)}`))
       .then(fn);
     queue = task;
     return task;
@@ -230,7 +233,7 @@ export async function startDaemon(): Promise<void> {
     }
   }
 
-  function handleConnection(socket: Socket) {
+  function handleConnection(socket: Socket): void {
     activeConnections++;
     resetIdleTimer();
 
@@ -271,7 +274,7 @@ export async function startDaemon(): Promise<void> {
                 }
               });
             } catch (err) {
-              daemonLog(`socket.write threw: ${err}`);
+              daemonLog(`socket.write threw: ${errorMessage(err)}`);
             }
           }).catch((err) => {
             daemonLog(`request handling failed: ${errorMessage(err)}`);
