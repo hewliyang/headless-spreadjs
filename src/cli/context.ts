@@ -82,6 +82,8 @@ async function withFileDaemon<T>(
     cached = { file, absPath };
   }
 
+  const wasDirty = rt.fileCache.isDirty(filePath, rt.cwd);
+
   let result: T;
   try {
     result = await fn({
@@ -91,8 +93,12 @@ async function withFileDaemon<T>(
     });
   } catch (err) {
     // fn() may have partially mutated the in-memory workbook.
-    // Evict the dirty entry so the next request re-reads from disk.
-    rt.fileCache.invalidate(filePath, rt.cwd);
+    // If this file wasn't dirty before request execution, evict it so the next
+    // request re-reads from disk. If it was already dirty, keep it to preserve
+    // previously acknowledged buffered writes.
+    if (!wasDirty) {
+      rt.fileCache.invalidate(filePath, rt.cwd);
+    }
     throw err;
   }
 

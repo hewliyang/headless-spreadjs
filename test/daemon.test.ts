@@ -323,6 +323,34 @@ describe("daemon", () => {
     assert.equal(after.dirtyFiles, 0);
   });
 
+  it("keeps previously dirty state after command error", async () => {
+    const file = path.join(tmpDir, "dirty-survives-error.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+    await sendCommand(
+      socketPath,
+      ["set", file, "A1", '[[{"value":"persist"}]]'],
+      tmpDir,
+    );
+
+    const evalFail = await sendCommand(
+      socketPath,
+      ["eval", file, 'throw new Error("boom")'],
+      tmpDir,
+    );
+    assert.equal(evalFail.exitCode, 1);
+
+    const flush = await sendCommand(socketPath, ["daemon", "flush"], tmpDir);
+    assert.equal(flush.exitCode, 0);
+
+    const get = await sendCommand(
+      socketPath,
+      ["get", file, "A1", "--no-styles"],
+      tmpDir,
+    );
+    assert.equal(get.exitCode, 0);
+    assert.equal(JSON.parse(get.stdout).cells.A1.value, "persist");
+  });
+
   it("file cache serves subsequent reads", async () => {
     const file = path.join(tmpDir, "test.xlsx");
 

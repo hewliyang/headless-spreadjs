@@ -106,6 +106,11 @@ export class FileCache {
     }
   }
 
+  isDirty(filePath: string, cwd: string): boolean {
+    const entry = this.cache.get(this.key(filePath, cwd));
+    return !!entry?.dirty;
+  }
+
   invalidate(filePath: string, cwd: string): void {
     this.cache.delete(this.key(filePath, cwd));
   }
