@@ -344,4 +344,73 @@ describe("daemon", () => {
     // Cache size should not have grown (file was already cached)
     assert.equal(statusBefore.cachedFiles, statusAfter.cachedFiles);
   });
+
+  it("flush failure returns structured error and daemon stays alive", async () => {
+    const file = path.join(tmpDir, "flush-fail.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+    await sendCommand(
+      socketPath,
+      ["set", file, "A1", '[[{"value":"x"}]]'],
+      tmpDir,
+    );
+
+    await fs.chmod(file, 0o444);
+
+    const flush = await sendCommand(socketPath, ["daemon", "flush"], tmpDir);
+    assert.equal(flush.exitCode, 1);
+    assert.ok(flush.stderr.includes("error"));
+
+    const status = await sendCommand(socketPath, ["daemon", "status"], tmpDir);
+    assert.equal(status.exitCode, 0);
+  });
+
+  it("stop failure returns error and does not ack success", async () => {
+    const file = path.join(tmpDir, "stop-fail.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+    await sendCommand(
+      socketPath,
+      ["set", file, "A1", '[[{"value":"x"}]]'],
+      tmpDir,
+    );
+
+    await fs.chmod(file, 0o444);
+
+    const stop = await sendCommand(socketPath, ["daemon", "stop"], tmpDir);
+    assert.equal(stop.exitCode, 1);
+    assert.equal(stop.stdout, "");
+    assert.ok(stop.stderr.includes("error"));
+
+    const status = await sendCommand(socketPath, ["daemon", "status"], tmpDir);
+    assert.equal(status.exitCode, 0);
+  });
+
+  it("SIGTERM exits with code 1 when dirty flush fails", async () => {
+    const file = path.join(tmpDir, "sigterm-fail.xlsx");
+    await sendCommand(socketPath, ["create", file], tmpDir);
+    await sendCommand(
+      socketPath,
+      ["set", file, "A1", '[[{"value":"x"}]]'],
+      tmpDir,
+    );
+
+    await fs.chmod(file, 0o444);
+
+    const status = JSON.parse(
+      (await sendCommand(socketPath, ["daemon", "status"], tmpDir)).stdout,
+    );
+    process.kill(status.pid, "SIGTERM");
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("daemon did not exit after SIGTERM"));
+      }, 5_000);
+
+      daemonProc.once("exit", (code) => {
+        clearTimeout(timeout);
+        resolve(code);
+      });
+    });
+
+    assert.equal(exitCode, 1);
+  });
 });

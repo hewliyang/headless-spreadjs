@@ -17,6 +17,10 @@ function envEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/i.test(value.trim());
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function getSocketPath(): string {
   if (process.env.HSX_SOCKET_PATH) return process.env.HSX_SOCKET_PATH;
   return process.platform === "win32"
@@ -86,24 +90,46 @@ export async function startDaemon(): Promise<void> {
 
   const server = createServer(handleConnection);
 
+  function daemonLog(msg: string): void {
+    const ts = new Date().toISOString();
+    process.stderr.write(`[hsx-daemon ${ts}] ${msg}\n`);
+  }
+
   function resetIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      if (activeConnections === 0) shutdown();
+      if (activeConnections === 0) {
+        void shutdown().catch((err) => {
+          daemonLog(`idle shutdown failed: ${errorMessage(err)}`);
+        });
+      }
     }, IDLE_TIMEOUT_MS);
   }
 
   let shuttingDown = false;
 
-  async function shutdown() {
+  async function shutdown(options?: { skipFlush?: boolean }): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
+
     if (idleTimer) clearTimeout(idleTimer);
-    const flushed = await fileCache.flushDirty();
-    if (flushed > 0) {
-      daemonLog(`flushed ${flushed} dirty file(s) to disk`);
+
+    if (!options?.skipFlush) {
+      try {
+        const flushed = await fileCache.flushDirty();
+        if (flushed > 0) {
+          daemonLog(`flushed ${flushed} dirty file(s) to disk`);
+        }
+      } catch (err) {
+        daemonLog(`shutdown aborted: failed to flush dirty files: ${errorMessage(err)}`);
+        shuttingDown = false;
+        resetIdleTimer();
+        throw err;
+      }
     }
+
     fileCache.clear();
+
     server.close();
     try {
       unlinkSync(socketPath);
@@ -112,16 +138,9 @@ export async function startDaemon(): Promise<void> {
     process.exit(0);
   }
 
-  function daemonLog(msg: string): void {
-    const ts = new Date().toISOString();
-    process.stderr.write(`[hsx-daemon ${ts}] ${msg}\n`);
-  }
-
   let queue: Promise<void> = Promise.resolve();
   function enqueue(fn: () => Promise<void>): Promise<void> {
-    const task = queue
-      .catch((err) => daemonLog(`queue error: ${err}`))
-      .then(fn);
+    const task = queue.catch((err) => daemonLog(`queue error: ${err}`)).then(fn);
     queue = task;
     return task;
   }
@@ -129,68 +148,79 @@ export async function startDaemon(): Promise<void> {
   async function handleRequest(
     request: DaemonRequest,
   ): Promise<DaemonResponse & { shutdown?: boolean }> {
-    if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
-      return {
-        stdout: `${JSON.stringify({ stopped: true })}\n`,
-        stderr: "",
-        exitCode: 0,
-        shutdown: true,
-      };
-    }
-
-    if (request.argv[0] === "daemon" && request.argv[1] === "flush") {
-      const flushed = await fileCache.flushDirty();
-      if (flushed > 0) {
-        daemonLog(`flushed ${flushed} dirty file(s) via explicit request`);
-      }
-      return {
-        stdout: `${JSON.stringify({
-          flushed,
-          dirtyFiles: fileCache.dirtyCount,
-        })}\n`,
-        stderr: "",
-        exitCode: 0,
-      };
-    }
-
-    if (request.argv[0] === "daemon" && request.argv[1] === "status") {
-      const mem = process.memoryUsage();
-      return {
-        stdout: `${JSON.stringify({
-          pid: process.pid,
-          cachedFiles: fileCache.size,
-          dirtyFiles: fileCache.dirtyCount,
-          maxCacheSize: fileCache.maxCacheSize,
-          writeThrough,
-          uptime: Math.floor(process.uptime()),
-          heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
-          rssMB: Math.round(mem.rss / 1024 / 1024),
-          logFile: getLogPath(),
-        })}\n`,
-        stderr: "",
-        exitCode: 0,
-      };
-    }
-
-    const runtime = {
-      GC,
-      ExcelFile,
-      fileCache,
-      cwd: request.cwd,
-      writeThrough,
-    };
-    const io = createIoContext(request.stdin);
-
     try {
-      await runWithDaemonRuntime(runtime, () =>
-        runWithIo(io, () => dispatch(request.argv)),
-      );
-      return { stdout: io.stdout, stderr: io.stderr, exitCode: 0 };
+      if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
+        const flushed = await fileCache.flushDirty();
+        if (flushed > 0) {
+          daemonLog(`flushed ${flushed} dirty file(s) before stop`);
+        }
+        return {
+          stdout: `${JSON.stringify({ stopped: true })}\n`,
+          stderr: "",
+          exitCode: 0,
+          shutdown: true,
+        };
+      }
+
+      if (request.argv[0] === "daemon" && request.argv[1] === "flush") {
+        const flushed = await fileCache.flushDirty();
+        if (flushed > 0) {
+          daemonLog(`flushed ${flushed} dirty file(s) via explicit request`);
+        }
+        return {
+          stdout: `${JSON.stringify({
+            flushed,
+            dirtyFiles: fileCache.dirtyCount,
+          })}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+
+      if (request.argv[0] === "daemon" && request.argv[1] === "status") {
+        const mem = process.memoryUsage();
+        return {
+          stdout: `${JSON.stringify({
+            pid: process.pid,
+            cachedFiles: fileCache.size,
+            dirtyFiles: fileCache.dirtyCount,
+            maxCacheSize: fileCache.maxCacheSize,
+            writeThrough,
+            uptime: Math.floor(process.uptime()),
+            heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+            rssMB: Math.round(mem.rss / 1024 / 1024),
+            logFile: getLogPath(),
+          })}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+
+      const runtime = {
+        GC,
+        ExcelFile,
+        fileCache,
+        cwd: request.cwd,
+        writeThrough,
+      };
+      const io = createIoContext(request.stdin);
+
+      try {
+        await runWithDaemonRuntime(runtime, () =>
+          runWithIo(io, () => dispatch(request.argv)),
+        );
+        return { stdout: io.stdout, stderr: io.stderr, exitCode: 0 };
+      } catch (err) {
+        return {
+          stdout: io.stdout,
+          stderr: `${io.stderr}${JSON.stringify({ error: errorMessage(err) })}\n`,
+          exitCode: 1,
+        };
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       return {
-        stdout: io.stdout,
-        stderr: `${io.stderr}${JSON.stringify({ error: message })}\n`,
+        stdout: "",
+        stderr: `${JSON.stringify({ error: errorMessage(err) })}\n`,
         exitCode: 1,
       };
     }
@@ -228,11 +258,19 @@ export async function startDaemon(): Promise<void> {
             try {
               socket.write(`${JSON.stringify(wire)}\n`, (err) => {
                 if (err) daemonLog(`socket.write error: ${err.message}`);
-                if (shouldShutdown) shutdown();
+                if (shouldShutdown) {
+                  void shutdown({ skipFlush: true }).catch((shutdownErr) => {
+                    daemonLog(
+                      `shutdown failed after stop ack: ${errorMessage(shutdownErr)}`,
+                    );
+                  });
+                }
               });
             } catch (err) {
               daemonLog(`socket.write threw: ${err}`);
             }
+          }).catch((err) => {
+            daemonLog(`request handling failed: ${errorMessage(err)}`);
           });
         }
 
@@ -269,6 +307,17 @@ export async function startDaemon(): Promise<void> {
     resetIdleTimer();
   });
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => {
+    void shutdown().catch((err) => {
+      daemonLog(`SIGINT shutdown failed: ${errorMessage(err)}`);
+      process.exit(1);
+    });
+  });
+
+  process.on("SIGTERM", () => {
+    void shutdown().catch((err) => {
+      daemonLog(`SIGTERM shutdown failed: ${errorMessage(err)}`);
+      process.exit(1);
+    });
+  });
 }
