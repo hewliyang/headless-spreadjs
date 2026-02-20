@@ -1,15 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { SpreadWorksheet } from "../../types.js";
 import { cellToA1 } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { ok } from "../output.js";
-import type { SpreadWorksheet } from "../../types.js";
 
 const DEFAULT_INLINE_LIMIT = 2000;
 const DEFAULT_PREVIEW_LIMIT = 200;
 const USED_RANGE_TYPE_DATA_FORMULA = 16 | 32;
+
+type RawUsedRange = ReturnType<SpreadWorksheet["getUsedRange"]>;
 
 interface CellSnapshot {
   row: number;
@@ -42,12 +44,7 @@ function collectUsedCells(
   signal?: AbortSignal | null,
 ): Map<string, CellSnapshot> {
   const cells = new Map<string, CellSnapshot>();
-  let usedRange: {
-    row: number;
-    col: number;
-    rowCount: number;
-    colCount: number;
-  } | null = null;
+  let usedRange: RawUsedRange | null = null;
 
   try {
     usedRange = sheet.getUsedRange(USED_RANGE_TYPE_DATA_FORMULA);

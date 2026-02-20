@@ -2,6 +2,7 @@ import { clear } from "./commands/clear.js";
 import { copy } from "./commands/copy.js";
 import { create } from "./commands/create.js";
 import { type CsvMode, csv } from "./commands/csv.js";
+import { deps, refs } from "./commands/deps.js";
 import { diff } from "./commands/diff.js";
 import { evalCode } from "./commands/eval.js";
 import { get } from "./commands/get.js";
@@ -27,6 +28,8 @@ Commands:
   search <file> <term> [--sheet S] [--regex] Search for values across sheets
   copy <file> <src> <dst>                    Copy range (formulas + styles)
   diff <left-file> <right-file>              Compare workbooks (value + formula)
+  deps <file> <cell> [--depth N|--recursive] Trace precedents (what this cell reads)
+  refs <file> <cell> [--depth N|--recursive] Trace dependents (what reads this cell)
   sheet <file> <op> [args]                   list | create | delete | rename
   rc <file> <op> <dim> [--ref R] [--count N] Insert/delete/hide/freeze rows or columns
   resize <file> [--columns A:D] [--width N]  Resize column widths or row heights
@@ -51,6 +54,11 @@ CSV options:
                               formula: formula text for formula cells
                               both: value and formula (e.g. "5 | =B2+1")
   --formulas                shorthand for --mode formula
+
+Dependency tracing options:
+  --depth <n>               Trace up to n hops (default: 1)
+  --recursive               Shorthand for --depth 50
+  --max-formulas <n>        refs: cap scanned formula cells (default: 250000)
 
 Reference format:
   Sheet1!A1:C10    range on named sheet
@@ -137,6 +145,25 @@ function parseCsvMode(args: string[]): CsvMode {
   }
 
   return hasFlag(args, "--formulas") ? "formula" : "value";
+}
+
+function parseTraceDepth(args: string[]): number {
+  const hasDepthFlag = hasFlag(args, "--depth");
+  const rawDepth = flag(args, "--depth");
+
+  if (hasDepthFlag && (!rawDepth || rawDepth.startsWith("--"))) {
+    throw new Error("Usage: --depth <n>");
+  }
+
+  if (rawDepth !== undefined) {
+    const depth = Number.parseInt(rawDepth, 10);
+    if (Number.isNaN(depth) || depth <= 0) {
+      throw new Error(`Invalid value for --depth: ${rawDepth}`);
+    }
+    return depth;
+  }
+
+  return hasFlag(args, "--recursive") ? 50 : 1;
 }
 
 export async function dispatch(
@@ -231,6 +258,30 @@ export async function dispatch(
         previewLimit: parseOptionalInt(
           flag(rest, "--preview-limit"),
           "--preview-limit",
+        ),
+        signal,
+      });
+      break;
+    }
+
+    case "deps": {
+      const file = requireArg(rest, 0, "deps <file> <cell>");
+      const cell = requireArg(rest, 1, "deps <file> <cell>");
+      await deps(file, cell, {
+        depth: parseTraceDepth(rest),
+        signal,
+      });
+      break;
+    }
+
+    case "refs": {
+      const file = requireArg(rest, 0, "refs <file> <cell>");
+      const cell = requireArg(rest, 1, "refs <file> <cell>");
+      await refs(file, cell, {
+        depth: parseTraceDepth(rest),
+        maxFormulaCells: parseOptionalInt(
+          flag(rest, "--max-formulas"),
+          "--max-formulas",
         ),
         signal,
       });

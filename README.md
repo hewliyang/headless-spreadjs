@@ -82,6 +82,10 @@ hsx search scores.xlsx "Alice"
 # Compare two workbooks (value + formula)
 hsx diff scores-before.xlsx scores-after.xlsx
 
+# Trace direct precedents/dependents
+hsx deps scores.xlsx Sheet3!A1
+hsx refs scores.xlsx Sheet1!A1 --recursive
+
 # Add a formula via eval (full SpreadJS API access)
 hsx eval scores.xlsx '
   sheet.setValue(3, 0, "Average");

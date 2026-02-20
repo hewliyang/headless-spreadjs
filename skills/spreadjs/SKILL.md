@@ -32,6 +32,8 @@ hsx clear file.xlsx "A1:C10" [--type all|styles]       # clear values (default),
 hsx search file.xlsx "term" [--sheet S] [--regex]      # find values
 hsx copy file.xlsx "A1:C1" "A10:C10"                   # copy range (formulas + styles)
 hsx diff left.xlsx right.xlsx [--inline-limit N] [--preview-limit N] # compare value + formula changes
+hsx deps file.xlsx "Sheet1!A1" [--depth N|--recursive] # precedents (upstream)
+hsx refs file.xlsx "Sheet1!A1" [--depth N|--recursive] [--max-formulas N] # dependents (downstream)
 hsx sheet file.xlsx list|create|delete|rename          # manage sheets
 hsx rc file.xlsx insert|delete|hide|freeze rows|columns [--ref R] [--count N]
 hsx resize file.xlsx [--columns A:D] [--width N] [--rows 1:10] [--height N]
@@ -42,6 +44,8 @@ hsx daemon start|stop|status|flush                     # daemon lifecycle
 ```
 
 References use A1 notation: `Sheet1!A1:C10`, `A1:C10` (active sheet), or `A1` (single cell).
+
+Dependency tracing defaults to one-hop (`--depth 1`). Use `--depth N` for bounded multi-hop traversal or `--recursive` (shorthand for `--depth 50`).
 
 ## Write
 
@@ -110,6 +114,24 @@ hsx diff old.xlsx new.xlsx --inline-limit 1000 --preview-limit 50
 jq -r '.diffFile' diff-output.json
 rg '"sheet":"Sheet1"' "$(jq -r '.diffFile' diff-output.json)"
 ```
+
+## Dependency tracing (deps / refs)
+
+```bash
+# Direct precedents (what Sheet3!A1 reads)
+hsx deps model.xlsx "Sheet3!A1"
+
+# Multi-hop precedents
+hsx deps model.xlsx "Sheet3!A1" --depth 2
+
+# Direct dependents (what reads Sheet1!A1)
+hsx refs model.xlsx "Sheet1!A1"
+
+# Recursive dependents with a safety cap for large files
+hsx refs model.xlsx "Sheet1!A1" --recursive --max-formulas 300000
+```
+
+Output is JSON and includes hop counts plus stats. This is best-effort for dynamic formulas (e.g. `INDIRECT`, `OFFSET`).
 
 ## Sheets
 
@@ -202,5 +224,6 @@ The file is at `./spreadjs.d.ts`. Use `grep -n` to find what you need, then `rea
 - Use formulas, not hardcoded computed values: `{"formula":"=SUM(A1:A9)"}` not `{"value":45}`
 - Keep each `set` call focused; build incrementally across multiple calls
 - Use `hsx get` or `hsx csv` to verify after writes
+- Use `hsx deps` / `hsx refs` for repeatable lineage checks; use `eval` for custom one-offs
 - Prefer uniform column widths; use empty columns for indentation
 - Always specify units in headers: `Revenue ($mm)`, `Growth (%)`

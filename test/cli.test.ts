@@ -459,6 +459,52 @@ describe("cli", () => {
     assert.ok(lines[0].includes('"sheet":"Sheet1"'));
   });
 
+  it("deps supports recursive tracing with hop counts", async () => {
+    const traceFile = path.join(tmpDir, "trace-deps.xlsx");
+    await hsx(["create", traceFile]);
+    await hsx(["sheet", traceFile, "create", "Sheet2"]);
+    await hsx(["sheet", traceFile, "create", "Sheet3"]);
+
+    await hsx([
+      "eval",
+      traceFile,
+      'workbook.getSheetFromName("Sheet1").setValue(0, 0, 2); workbook.getSheetFromName("Sheet2").setFormula(0, 0, "Sheet1!A1*5"); workbook.getSheetFromName("Sheet3").setFormula(0, 0, "Sheet2!A1+1");',
+    ]);
+
+    const { stdout } = await hsx(["deps", traceFile, "Sheet3!A1", "--recursive"]);
+    const result = JSON.parse(stdout) as {
+      dependencies: Array<{ sheet: string; ref: string; hop: number }>;
+    };
+
+    const byHop = new Map(result.dependencies.map((d) => [`${d.sheet}!${d.ref}`, d.hop]));
+    assert.equal(byHop.get("Sheet2!A1"), 1);
+    assert.equal(byHop.get("Sheet1!A1"), 2);
+  });
+
+  it("refs defaults to one-hop", async () => {
+    const traceFile = path.join(tmpDir, "trace-deps.xlsx");
+    const { stdout } = await hsx(["refs", traceFile, "Sheet1!A1"]);
+    const result = JSON.parse(stdout) as {
+      references: Array<{ sheet: string; cell: string; hop: number }>;
+    };
+
+    const refsSet = new Set(result.references.map((r) => `${r.sheet}!${r.cell}`));
+    assert.ok(refsSet.has("Sheet2!A1"));
+    assert.ok(!refsSet.has("Sheet3!A1"));
+  });
+
+  it("refs supports recursive multi-hop tracing", async () => {
+    const traceFile = path.join(tmpDir, "trace-deps.xlsx");
+    const { stdout } = await hsx(["refs", traceFile, "Sheet1!A1", "--recursive"]);
+    const result = JSON.parse(stdout) as {
+      references: Array<{ sheet: string; cell: string; hop: number }>;
+    };
+
+    const byHop = new Map(result.references.map((r) => [`${r.sheet}!${r.cell}`, r.hop]));
+    assert.equal(byHop.get("Sheet2!A1"), 1);
+    assert.equal(byHop.get("Sheet3!A1"), 2);
+  });
+
   it("insert and delete rows", async () => {
     await hsx(["rc", testFile, "insert", "rows", "--ref", "2"]);
     const { stdout } = await hsx(["get", testFile, "A2", "--no-styles"]);
