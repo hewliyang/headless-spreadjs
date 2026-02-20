@@ -207,6 +207,18 @@ describe("cli", () => {
     assert.equal(lines[2], "Bob,5 | =B2+1");
   });
 
+  it("csv accepts flags between positional args", async () => {
+    const { stdout } = await hsx(["csv", testFile, "--formulas", "A1:B3"]);
+    const lines = stdout.trim().split("\n");
+    assert.equal(lines[2], "Bob,=B2+1");
+  });
+
+  it("csv supports --mode=both", async () => {
+    const { stdout } = await hsx(["csv", testFile, "A1:B3", "--mode=both"]);
+    const lines = stdout.trim().split("\n");
+    assert.equal(lines[2], "Bob,5 | =B2+1");
+  });
+
   it("csv errors on invalid mode", async () => {
     try {
       await hsx(["csv", testFile, "A1:B3", "--mode", "wat"]);

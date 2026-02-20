@@ -124,11 +124,32 @@ function parseClearType(
 }
 
 function parseCsvMode(args: string[]): CsvMode {
-  const explicitMode = flag(args, "--mode");
-  const hasModeFlag = hasFlag(args, "--mode");
+  let explicitMode: string | undefined;
 
-  if (hasModeFlag && (!explicitMode || explicitMode.startsWith("--"))) {
-    throw new Error("Usage: hsx csv <file> <ref> [--mode value|formula|both]");
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--mode") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("--")) {
+        throw new Error(
+          "Usage: hsx csv <file> <ref> [--mode value|formula|both]",
+        );
+      }
+      explicitMode = next;
+      i++;
+      continue;
+    }
+
+    if (arg.startsWith("--mode=")) {
+      const value = arg.slice("--mode=".length);
+      if (!value) {
+        throw new Error(
+          "Usage: hsx csv <file> <ref> [--mode value|formula|both]",
+        );
+      }
+      explicitMode = value;
+    }
   }
 
   if (explicitMode) {
@@ -145,6 +166,38 @@ function parseCsvMode(args: string[]): CsvMode {
   }
 
   return hasFlag(args, "--formulas") ? "formula" : "value";
+}
+
+function parseCsvPositionalArgs(args: string[]): { file: string; ref: string } {
+  const positional: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--mode") {
+      i++;
+      continue;
+    }
+
+    if (arg.startsWith("--mode=") || arg === "--formulas") {
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      continue;
+    }
+
+    positional.push(arg);
+  }
+
+  const file = positional[0];
+  const ref = positional[1];
+
+  if (!file || !ref) {
+    throw new Error("Usage: hsx csv <file> <ref> [--mode value|formula|both]");
+  }
+
+  return { file, ref };
 }
 
 function parseTraceDepth(args: string[]): number {
@@ -196,16 +249,7 @@ export async function dispatch(
     }
 
     case "csv": {
-      const file = requireArg(
-        rest,
-        0,
-        "csv <file> <ref> [--mode value|formula|both]",
-      );
-      const ref = requireArg(
-        rest,
-        1,
-        "csv <file> <ref> [--mode value|formula|both]",
-      );
+      const { file, ref } = parseCsvPositionalArgs(rest);
       const mode = parseCsvMode(rest);
       await csv(file, ref, { signal, mode });
       break;

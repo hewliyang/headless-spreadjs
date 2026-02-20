@@ -10,6 +10,7 @@ import { FileCache } from "./file-cache.js";
 import { createIoContext, runWithIo } from "./output.js";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const AUTO_FLUSH_INTERVAL_MS = 5_000;
 const DEFAULT_CACHE_SIZE = 10;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 3_000;
@@ -123,6 +124,7 @@ export async function startDaemon(): Promise<void> {
     shuttingDown = true;
 
     if (idleTimer) clearTimeout(idleTimer);
+    if (autoFlushTimer) clearInterval(autoFlushTimer);
 
     if (!options?.skipFlush) {
       try {
@@ -157,6 +159,25 @@ export async function startDaemon(): Promise<void> {
       .then(fn);
     queue = task;
     return task;
+  }
+
+  let autoFlushTimer: ReturnType<typeof setInterval> | null = null;
+  if (!writeThrough) {
+    autoFlushTimer = setInterval(() => {
+      if (fileCache.dirtyCount > 0) {
+        enqueue(async () => {
+          try {
+            const flushed = await fileCache.flushDirty();
+            if (flushed > 0) {
+              daemonLog(`auto-flush: saved ${flushed} dirty file(s) to disk`);
+            }
+          } catch (err) {
+            daemonLog(`auto-flush failed: ${errorMessage(err)}`);
+          }
+        }).catch(() => {});
+      }
+    }, AUTO_FLUSH_INTERVAL_MS);
+    autoFlushTimer.unref();
   }
 
   async function handleRequest(
