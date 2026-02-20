@@ -371,6 +371,88 @@ describe("cli", () => {
     assert.equal(data.cells.B10.value, "Rev");
   });
 
+  it("diff reports changed values and formulas", async () => {
+    const left = path.join(tmpDir, "diff-left.xlsx");
+    const right = path.join(tmpDir, "diff-right.xlsx");
+
+    await hsx(["create", left]);
+    await hsx(["create", right]);
+
+    await hsx([
+      "set",
+      left,
+      "A1:B2",
+      '[[{"value":"Name"},{"value":1}],[{"value":"Alice"},{"formula":"=B1+1"}]]',
+    ]);
+    await hsx([
+      "set",
+      right,
+      "A1:B2",
+      '[[{"value":"Name"},{"value":2}],[{"value":"Alicia"},{"formula":"=B1+2"}]]',
+    ]);
+
+    const { stdout } = await hsx(["diff", left, right]);
+    const result = JSON.parse(stdout);
+
+    assert.equal(result.changedCells, 3);
+    assert.equal(result.outputMode, "inline");
+    assert.ok(result.summary.includes("changed cells"));
+
+    const byCell = new Map(
+      result.diffs.map((d: { cell: string; left: { value: unknown }; right: { value: unknown } }) => [
+        d.cell,
+        d,
+      ]),
+    );
+
+    assert.equal(byCell.get("A2")?.left.value, "Alice");
+    assert.equal(byCell.get("A2")?.right.value, "Alicia");
+    assert.equal(byCell.get("B1")?.left.value, 1);
+    assert.equal(byCell.get("B1")?.right.value, 2);
+    assert.equal(byCell.get("B2")?.left.formula, "B1+1");
+    assert.equal(byCell.get("B2")?.right.formula, "B1+2");
+  });
+
+  it("diff spills large output to tmp file", async () => {
+    const left = path.join(tmpDir, "diff-big-left.xlsx");
+    const right = path.join(tmpDir, "diff-big-right.xlsx");
+
+    await hsx(["create", left]);
+    await hsx(["create", right]);
+
+    await hsx([
+      "eval",
+      left,
+      "for (let r = 0; r < 6; r++) { for (let c = 0; c < 6; c++) { sheet.setValue(r, c, `L-${r}-${c}`); } }",
+    ]);
+    await hsx([
+      "eval",
+      right,
+      "for (let r = 0; r < 6; r++) { for (let c = 0; c < 6; c++) { sheet.setValue(r, c, `R-${r}-${c}`); } }",
+    ]);
+
+    const { stdout } = await hsx([
+      "diff",
+      left,
+      right,
+      "--inline-limit",
+      "5",
+      "--preview-limit",
+      "3",
+    ]);
+    const result = JSON.parse(stdout);
+
+    assert.equal(result.changedCells, 36);
+    assert.equal(result.outputMode, "tmpfile");
+    assert.equal(result.diffs.length, 3);
+    assert.ok(typeof result.diffFile === "string");
+
+    const diffFile = await fs.readFile(result.diffFile, "utf8");
+    const lines = diffFile.trim().split("\n");
+    assert.equal(lines.length, 36);
+    assert.ok(lines[0].includes('"sheet":"Sheet1"'));
+  });
+
   it("insert and delete rows", async () => {
     await hsx(["rc", testFile, "insert", "rows", "--ref", "2"]);
     const { stdout } = await hsx(["get", testFile, "A2", "--no-styles"]);

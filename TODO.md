@@ -19,12 +19,12 @@ Triage outcome for feature requests (as of 2026-02-19), incorporating follow-up 
     - `--mode value|formula|both`
   - Added `--formulas` as shorthand for `--mode formula`.
 
-- [ ] **(6) `hsx diff`** — **Useful, medium scope**
-  - Start with **v1 minimal scope**:
-    - Compare two workbooks
-    - Output changed cells by `sheet + A1`
-    - Compare only `value` and `formula`
-  - Defer styles/formatting/object diffs to later versions.
+- [x] **(6) `hsx diff`** — **shipped (v1 value + formula)**
+  - Compares two workbooks by sheet/cell (`A1`)
+  - Reports diffs for `value` + `formula`
+  - Emits a short summary string (`summary`) at top-level output
+  - If diff volume exceeds inline threshold, writes full NDJSON diff to temp file (`diffFile`) for grep-friendly inspection
+  - Styles/formatting/object diffs deferred
 
 - [ ] **(5) Dependency tracing** — **Scoped implementation only**
   - `deps <cell>` (what this cell references):

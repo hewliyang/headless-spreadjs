@@ -17,23 +17,28 @@ which hsx 2>/dev/null || npm install -g @hewliyang/headless-spreadjs
 
 All operations are bash calls. Formulas recalculate instantly (no sync step needed).
 
-All commands support a global timeout option: `--timeout <seconds>` (default: `30`).
+Global options:
+
+- `--timeout <seconds>` (default: `30`)
+- `--no-daemon` (run command directly bypassing daemon)
 
 ```bash
-hsx create file.xlsx                              # new workbook
-hsx info file.xlsx                                # sheets, used ranges
-hsx get file.xlsx "Sheet1!A1:C10"                 # read cells → JSON
-hsx csv file.xlsx "Sheet1!A1:C10"                 # read cells → CSV
-hsx set file.xlsx "Sheet1!A1:C3" '<json>'         # write cells
-hsx clear file.xlsx "A1:C10"                      # clear values
-hsx search file.xlsx "term" [--regex] [--sheet S] # find values
-hsx copy file.xlsx "A1:C1" "A10:C10"              # copy range
-hsx sheet file.xlsx list|create|delete|rename      # manage sheets
-hsx rc file.xlsx insert|delete|hide|freeze rows|columns  # row/col ops
-hsx resize file.xlsx --columns A:D --width 120    # column/row sizing
-hsx objects file.xlsx                             # list charts, tables
-hsx eval file.xlsx "code"                         # arbitrary JS
-hsx --timeout 120 eval file.xlsx "code"           # override timeout to 120s
+hsx create file.xlsx                                   # new workbook
+hsx info file.xlsx                                     # workbook metadata
+hsx get file.xlsx "Sheet1!A1:C10"                      # read cells → JSON
+hsx csv file.xlsx "Sheet1!A1:C10" [--mode value|formula|both] [--formulas]
+hsx set file.xlsx "Sheet1!A1:C3" '<json>'              # write cells
+hsx clear file.xlsx "A1:C10" [--type all|styles]       # clear values (default), all, or styles
+hsx search file.xlsx "term" [--sheet S] [--regex]      # find values
+hsx copy file.xlsx "A1:C1" "A10:C10"                   # copy range (formulas + styles)
+hsx diff left.xlsx right.xlsx [--inline-limit N] [--preview-limit N] # compare value + formula changes
+hsx sheet file.xlsx list|create|delete|rename          # manage sheets
+hsx rc file.xlsx insert|delete|hide|freeze rows|columns [--ref R] [--count N]
+hsx resize file.xlsx [--columns A:D] [--width N] [--rows 1:10] [--height N]
+hsx objects file.xlsx [--sheet Name]                   # list charts, tables, pivots
+hsx screenshot file.xlsx [ref] [-o out.png]            # screenshot workbook or range as PNG
+hsx eval file.xlsx "code"                              # arbitrary JS
+hsx daemon start|stop|status|flush                     # daemon lifecycle
 ```
 
 References use A1 notation: `Sheet1!A1:C10`, `A1:C10` (active sheet), or `A1` (single cell).
@@ -62,21 +67,48 @@ hsx csv file.xlsx "A1:B3"
 # → Name,Qty
 #    Alice,4
 #    Bob,5
+
+hsx csv file.xlsx "A1:B3" --mode formula
+hsx csv file.xlsx "A1:B3" --mode both
 ```
+
+## Screenshot
+
+```bash
+hsx screenshot file.xlsx
+hsx screenshot file.xlsx "Sheet1!A1:F20"
+hsx screenshot file.xlsx "Summary!A1:H30" -o summary.png
+```
+
+Screenshots render the full workbook (default) or a specific range to PNG.
 
 ## Search
 
 ```bash
-hsx search file.xlsx "Alice"                    # case-insensitive across all sheets
-hsx search file.xlsx "^Q[1-4]$" --regex         # regex
-hsx search file.xlsx "Revenue" --sheet Summary   # single sheet
+hsx search file.xlsx "Alice"                     # case-insensitive across all sheets
+hsx search file.xlsx "^Q[1-4]$" --regex          # regex
+hsx search file.xlsx "Revenue" --sheet Summary    # single sheet
 ```
 
-## Copy
+## Copy / Diff
 
 ```bash
-hsx copy file.xlsx "A1:C1" "A1:C10"             # repeat header pattern down
-hsx copy file.xlsx "Sheet1!A1:B5" "Sheet2!A1:B5" # cross-sheet
+hsx copy file.xlsx "A1:C1" "A1:C10"              # repeat header pattern down
+hsx copy file.xlsx "Sheet1!A1:B5" "Sheet2!A1:B5"  # cross-sheet
+
+hsx diff old.xlsx new.xlsx
+hsx diff old.xlsx new.xlsx --inline-limit 1000 --preview-limit 50
+```
+
+`hsx diff` output is JSON with a top-level `summary` string plus counts (`changedCells`, `comparedCells`).
+
+- `outputMode: "inline"` → full diff rows in `diffs`
+- `outputMode: "tmpfile"` → preview rows in `diffs`, full NDJSON at `diffFile` (grep-friendly)
+
+```bash
+# inspect spilled diff
+jq -r '.diffFile' diff-output.json
+rg '"sheet":"Sheet1"' "$(jq -r '.diffFile' diff-output.json)"
 ```
 
 ## Sheets
@@ -91,7 +123,7 @@ hsx sheet file.xlsx delete "OldSheet"
 ## Rows & Columns
 
 ```bash
-hsx rc file.xlsx insert rows --ref 5 --count 3    # insert 3 rows at row 5
+hsx rc file.xlsx insert rows --ref 5 --count 3     # insert 3 rows at row 5
 hsx rc file.xlsx delete columns --ref B --count 2  # delete columns B-C
 hsx rc file.xlsx hide rows --ref 10                # hide row 10
 hsx rc file.xlsx freeze rows --ref 1               # freeze top row

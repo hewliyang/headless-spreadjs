@@ -79,6 +79,9 @@ hsx csv scores.xlsx A1:B3 --mode formula
 # Search across sheets
 hsx search scores.xlsx "Alice"
 
+# Compare two workbooks (value + formula)
+hsx diff scores-before.xlsx scores-after.xlsx
+
 # Add a formula via eval (full SpreadJS API access)
 hsx eval scores.xlsx '
   sheet.setValue(3, 0, "Average");

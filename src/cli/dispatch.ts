@@ -2,6 +2,7 @@ import { clear } from "./commands/clear.js";
 import { copy } from "./commands/copy.js";
 import { create } from "./commands/create.js";
 import { type CsvMode, csv } from "./commands/csv.js";
+import { diff } from "./commands/diff.js";
 import { evalCode } from "./commands/eval.js";
 import { get } from "./commands/get.js";
 import { info } from "./commands/info.js";
@@ -25,6 +26,7 @@ Commands:
   clear <file> <ref> [--type all|styles]     Clear a range (default: values only)
   search <file> <term> [--sheet S] [--regex] Search for values across sheets
   copy <file> <src> <dst>                    Copy range (formulas + styles)
+  diff <left-file> <right-file>              Compare workbooks (value + formula)
   sheet <file> <op> [args]                   list | create | delete | rename
   rc <file> <op> <dim> [--ref R] [--count N] Insert/delete/hide/freeze rows or columns
   resize <file> [--columns A:D] [--width N]  Resize column widths or row heights
@@ -39,6 +41,10 @@ Commands:
 Options:
   --no-daemon                                Skip daemon, run directly
   --timeout <seconds>                        Command timeout (default: 30s)
+
+Diff options:
+  --inline-limit <n>                         Max inline diff rows before spooling to tmp file
+  --preview-limit <n>                        Number of diff rows kept in stdout JSON
 
 CSV options:
   --mode value|formula|both  value: calculated values (default)
@@ -211,6 +217,17 @@ export async function dispatch(
       const src = requireArg(rest, 1, "copy <file> <src> <dst>");
       const dst = requireArg(rest, 2, "copy <file> <src> <dst>");
       await copy(file, src, dst, { signal });
+      break;
+    }
+
+    case "diff": {
+      const leftFile = requireArg(rest, 0, "diff <left-file> <right-file>");
+      const rightFile = requireArg(rest, 1, "diff <left-file> <right-file>");
+      await diff(leftFile, rightFile, {
+        inlineLimit: parseOptionalInt(flag(rest, "--inline-limit"), "--inline-limit"),
+        previewLimit: parseOptionalInt(flag(rest, "--preview-limit"), "--preview-limit"),
+        signal,
+      });
       break;
     }
 
