@@ -224,8 +224,14 @@ export async function dispatch(
       const leftFile = requireArg(rest, 0, "diff <left-file> <right-file>");
       const rightFile = requireArg(rest, 1, "diff <left-file> <right-file>");
       await diff(leftFile, rightFile, {
-        inlineLimit: parseOptionalInt(flag(rest, "--inline-limit"), "--inline-limit"),
-        previewLimit: parseOptionalInt(flag(rest, "--preview-limit"), "--preview-limit"),
+        inlineLimit: parseOptionalInt(
+          flag(rest, "--inline-limit"),
+          "--inline-limit",
+        ),
+        previewLimit: parseOptionalInt(
+          flag(rest, "--preview-limit"),
+          "--preview-limit",
+        ),
         signal,
       });
       break;

@@ -392,17 +392,23 @@ describe("cli", () => {
     ]);
 
     const { stdout } = await hsx(["diff", left, right]);
-    const result = JSON.parse(stdout);
+    const result = JSON.parse(stdout) as {
+      changedCells: number;
+      outputMode: string;
+      summary: string;
+      diffs: Array<{
+        cell: string;
+        left: { value: unknown; formula: string | null };
+        right: { value: unknown; formula: string | null };
+      }>;
+    };
 
     assert.equal(result.changedCells, 3);
     assert.equal(result.outputMode, "inline");
     assert.ok(result.summary.includes("changed cells"));
 
-    const byCell = new Map(
-      result.diffs.map((d: { cell: string; left: { value: unknown }; right: { value: unknown } }) => [
-        d.cell,
-        d,
-      ]),
+    const byCell = new Map<string, (typeof result.diffs)[number]>(
+      result.diffs.map((d) => [d.cell, d] as const),
     );
 
     assert.equal(byCell.get("A2")?.left.value, "Alice");

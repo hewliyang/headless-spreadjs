@@ -5,6 +5,7 @@ import { cellToA1 } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { ok } from "../output.js";
+import type { SpreadWorksheet } from "../../types.js";
 
 const DEFAULT_INLINE_LIMIT = 2000;
 const DEFAULT_PREVIEW_LIMIT = 200;
@@ -37,18 +38,16 @@ function fromCellKey(key: string): { row: number; col: number } {
 }
 
 function collectUsedCells(
-  sheet: {
-    getUsedRange(type: number):
-      | { row: number; col: number; rowCount: number; colCount: number }
-      | null;
-    getValue(row: number, col: number): unknown;
-    getFormula(row: number, col: number): string | null;
-  },
+  sheet: SpreadWorksheet,
   signal?: AbortSignal | null,
 ): Map<string, CellSnapshot> {
   const cells = new Map<string, CellSnapshot>();
-  let usedRange: { row: number; col: number; rowCount: number; colCount: number } | null =
-    null;
+  let usedRange: {
+    row: number;
+    col: number;
+    rowCount: number;
+    colCount: number;
+  } | null = null;
 
   try {
     usedRange = sheet.getUsedRange(USED_RANGE_TYPE_DATA_FORMULA);
@@ -96,12 +95,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
     return left.getTime() === right.getTime();
   }
 
-  if (
-    left &&
-    right &&
-    typeof left === "object" &&
-    typeof right === "object"
-  ) {
+  if (left && right && typeof left === "object" && typeof right === "object") {
     try {
       return JSON.stringify(left) === JSON.stringify(right);
     } catch {
@@ -124,7 +118,12 @@ function summarizeDivergence(
   }
 
   const ratio = comparedCells > 0 ? changedCells / comparedCells : 1;
-  const level = ratio < 0.01 ? "Low divergence" : ratio < 0.2 ? "Moderate divergence" : "High divergence";
+  const level =
+    ratio < 0.01
+      ? "Low divergence"
+      : ratio < 0.2
+        ? "Moderate divergence"
+        : "High divergence";
 
   return `${level}: ${changedCells} changed cells across ${sheetsWithDifferences} sheet(s). Left-only sheets: ${sheetsOnlyLeft}, right-only sheets: ${sheetsOnlyRight}.`;
 }
@@ -206,7 +205,11 @@ export async function diff(
         }
 
         if (outputFilePath) {
-          fs.appendFileSync(outputFilePath, `${JSON.stringify(entry)}\n`, "utf8");
+          fs.appendFileSync(
+            outputFilePath,
+            `${JSON.stringify(entry)}\n`,
+            "utf8",
+          );
           return;
         }
 
@@ -221,7 +224,9 @@ export async function diff(
         const leftSheet = leftWorkbook.getSheetFromName(sheetName);
         const rightSheet = rightWorkbook.getSheetFromName(sheetName);
 
-        const leftCells = leftSheet ? collectUsedCells(leftSheet, signal) : new Map();
+        const leftCells = leftSheet
+          ? collectUsedCells(leftSheet, signal)
+          : new Map();
         const rightCells = rightSheet
           ? collectUsedCells(rightSheet, signal)
           : new Map();
@@ -249,7 +254,8 @@ export async function diff(
             formula: null,
           };
 
-          const sameFormula = (left.formula || null) === (right.formula || null);
+          const sameFormula =
+            (left.formula || null) === (right.formula || null);
           const sameValue = valuesEqual(left.value, right.value);
           if (sameFormula && sameValue) {
             continue;
@@ -305,8 +311,7 @@ export async function diff(
           ? {
               diffFile: outputFilePath,
               tempDir: outputDirPath,
-              note:
-                "Diff set is large; full diff was written to diffFile as NDJSON for grep-friendly inspection.",
+              note: "Diff set is large; full diff was written to diffFile as NDJSON for grep-friendly inspection.",
             }
           : {}),
         diffs: inlineDiffs,
