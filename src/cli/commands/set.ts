@@ -1,13 +1,26 @@
-import { parseRef, rangeDimensions } from "../a1.js";
+import { cellToA1, parseRef, type RangeRef, rangeDimensions } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
-import { fail, ok, readInput } from "../output.js";
+import { ok, readInput } from "../output.js";
 import { applyStyles, type CellStyles } from "../styles.js";
 
 interface CellInput {
   value?: unknown;
   formula?: string;
   cellStyles?: CellStyles;
+}
+
+function formatRange(ref: RangeRef): string {
+  const start = cellToA1(ref.start.row, ref.start.col);
+  const end = cellToA1(ref.end.row, ref.end.col);
+  const base = start === end ? start : `${start}:${end}`;
+
+  if (!ref.sheet) return base;
+
+  const safeSheet = /^[A-Za-z0-9_]+$/.test(ref.sheet)
+    ? ref.sheet
+    : `'${ref.sheet.replace(/'/g, "''")}'`;
+  return `${safeSheet}!${base}`;
 }
 
 export async function set(
@@ -23,43 +36,78 @@ export async function set(
   try {
     cells = JSON.parse(input);
   } catch {
-    fail("Invalid JSON input for cells.");
-    return;
+    throw new Error("Invalid JSON input for cells.");
   }
 
   if (!Array.isArray(cells) || !Array.isArray(cells[0])) {
-    fail("Cells must be a 2D array: [[{value: ...}, ...], ...]");
-    return;
+    throw new Error("Cells must be a 2D array: [[{value: ...}, ...], ...]");
   }
 
   const parsed = parseRef(ref);
-  const { rows, cols } = rangeDimensions(parsed);
+  const target: RangeRef = {
+    sheet: parsed.sheet,
+    start: { ...parsed.start },
+    end: { ...parsed.end },
+  };
 
-  if (cells.length !== rows) {
-    fail(
-      `Row count mismatch: range has ${rows} rows but got ${cells.length} rows.`,
-    );
-    return;
-  }
-  for (let r = 0; r < cells.length; r++) {
+  const { rows: originalRows, cols: originalCols } = rangeDimensions(parsed);
+  const isSingleCellRef = originalRows === 1 && originalCols === 1;
+
+  const dataRows = cells.length;
+  const dataCols = cells[0].length;
+
+  for (let r = 0; r < dataRows; r++) {
     throwIfAborted(signal);
-    if (cells[r].length !== cols) {
-      fail(
-        `Column count mismatch in row ${r}: range has ${cols} cols but got ${cells[r].length} cols.`,
+    if (!Array.isArray(cells[r])) {
+      throw new Error(`Row ${r} is not an array.`);
+    }
+    if (cells[r].length !== dataCols) {
+      throw new Error(
+        `Column count mismatch in row ${r}: expected ${dataCols} cols but got ${cells[r].length} cols.`,
       );
-      return;
     }
   }
+
+  const messages: string[] = [];
+
+  if (isSingleCellRef) {
+    target.end.row = target.start.row + dataRows - 1;
+    target.end.col = target.start.col + dataCols - 1;
+
+    const rowDiff = dataRows - originalRows;
+    const colDiff = dataCols - originalCols;
+    if (rowDiff !== 0 || colDiff !== 0) {
+      messages.push(
+        `Adjusted range from ${formatRange(parsed)} to ${formatRange(target)} (row diff: ${rowDiff}, col diff: ${colDiff})`,
+      );
+    }
+  } else {
+    if (dataRows !== originalRows) {
+      throw new Error(
+        `Row count mismatch: range has ${originalRows} rows but got ${dataRows} rows.`,
+      );
+    }
+    for (let r = 0; r < dataRows; r++) {
+      throwIfAborted(signal);
+      if (cells[r].length !== originalCols) {
+        throw new Error(
+          `Column count mismatch in row ${r}: range has ${originalCols} cols but got ${cells[r].length} cols.`,
+        );
+      }
+    }
+  }
+
+  const { rows, cols } = rangeDimensions(target);
 
   await withFile(
     filePath,
     ({ file, workbook, GC }) => {
-      const sheet = parsed.sheet
-        ? workbook.getSheetFromName(parsed.sheet)
+      const sheet = target.sheet
+        ? workbook.getSheetFromName(target.sheet)
         : workbook.getActiveSheet();
 
       if (!sheet) {
-        fail(`Sheet not found: ${parsed.sheet ?? "(active)"}`);
+        throw new Error(`Sheet not found: ${target.sheet ?? "(active)"}`);
       }
 
       let written = 0;
@@ -68,11 +116,11 @@ export async function set(
         for (let r = 0; r < rows; r++) {
           throwIfAborted(signal);
           for (let c = 0; c < cols; c++) {
-            const cell = cells[r][c];
+            const cell = cells[r]?.[c];
             if (!cell) continue;
 
-            const row = parsed.start.row + r;
-            const col = parsed.start.col + c;
+            const row = target.start.row + r;
+            const col = target.start.col + c;
 
             if (cell.formula) {
               const f = cell.formula.startsWith("=")
@@ -92,7 +140,12 @@ export async function set(
         }
       });
 
-      ok({ written, range: ref });
+      ok({
+        success: true,
+        written,
+        range: formatRange(target),
+        messages,
+      });
     },
     { save: true, signal },
   );

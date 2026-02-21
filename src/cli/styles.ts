@@ -6,6 +6,7 @@ import type { Spread } from "@mescius/spread-sheets";
 import type { GCNamespace, SpreadStyle, SpreadWorksheet } from "../types.js";
 
 export interface CellStyles {
+  bold?: boolean;
   fontWeight?: "normal" | "bold";
   fontStyle?: "normal" | "italic";
   fontSize?: number;
@@ -109,8 +110,11 @@ export function applyStyles(
     Object.assign(style, existing);
   }
 
-  if (styles.fontWeight) {
-    style.fontWeight = styles.fontWeight;
+  const effectiveFontWeight =
+    styles.fontWeight ??
+    (styles.bold === undefined ? undefined : styles.bold ? "bold" : "normal");
+  if (effectiveFontWeight) {
+    style.fontWeight = effectiveFontWeight;
   }
   if (styles.fontStyle) {
     style.fontStyle = styles.fontStyle;

@@ -142,8 +142,10 @@ describe("cli", () => {
       JSON.stringify(cells),
     ]);
     assert.deepStrictEqual(JSON.parse(setOut), {
+      success: true,
       written: 6,
       range: "A1:B3",
+      messages: [],
     });
 
     const { stdout: getOut } = await hsx([
@@ -332,6 +334,37 @@ describe("cli", () => {
     assert.equal(data.cells.D1.styles.backgroundColor.toLowerCase(), "#ff0000");
   });
 
+  it("set auto-expands single-cell refs to input shape", async () => {
+    const cells = [[{ value: "r1" }], [{ value: "r2" }]];
+    const { stdout } = await hsx([
+      "set",
+      testFile,
+      "A20",
+      JSON.stringify(cells),
+    ]);
+
+    const result = JSON.parse(stdout);
+    assert.equal(result.success, true);
+    assert.equal(result.range, "A20:A21");
+    assert.equal(result.written, 2);
+    assert.equal(result.messages.length, 1);
+    assert.match(result.messages[0], /Adjusted range from A20 to A20:A21/);
+
+    const { stdout: getOut } = await hsx(["get", testFile, "A20:A21"]);
+    const data = JSON.parse(getOut);
+    assert.equal(data.cells.A20.value, "r1");
+    assert.equal(data.cells.A21.value, "r2");
+  });
+
+  it("set supports cellStyles.bold alias", async () => {
+    const cells = [[{ value: "Bold alias", cellStyles: { bold: true } }]];
+    await hsx(["set", testFile, "G1", JSON.stringify(cells)]);
+
+    const { stdout } = await hsx(["get", testFile, "G1"]);
+    const data = JSON.parse(stdout);
+    assert.equal(data.cells.G1.styles.bold, true);
+  });
+
   it("set via stdin", async () => {
     const cells = [[{ value: "stdin-test" }]];
     const { stdout } = await hsx(
@@ -339,8 +372,10 @@ describe("cli", () => {
       JSON.stringify(cells),
     );
     assert.deepStrictEqual(JSON.parse(stdout), {
+      success: true,
       written: 1,
       range: "E1",
+      messages: [],
     });
 
     const { stdout: getOut } = await hsx(["get", testFile, "E1"]);
@@ -354,8 +389,10 @@ describe("cli", () => {
       JSON.stringify(cells),
     );
     assert.deepStrictEqual(JSON.parse(stdout), {
+      success: true,
       written: 1,
       range: "E2",
+      messages: [],
     });
 
     const { stdout: getOut } = await hsx(["get", testFile, "E2"]);
