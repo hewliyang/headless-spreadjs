@@ -68,7 +68,11 @@ export async function rowsCols(
     filePath,
     ({ file, workbook }) => {
       const qualified = options.ref ? splitQualifiedRef(options.ref) : null;
-      if (options.sheet && qualified?.sheet && options.sheet !== qualified.sheet) {
+      if (
+        options.sheet &&
+        qualified?.sheet &&
+        options.sheet !== qualified.sheet
+      ) {
         fail(
           `Sheet mismatch: --sheet ${options.sheet} does not match ref sheet ${qualified.sheet}`,
         );
@@ -114,7 +118,9 @@ export async function rowsCols(
       }
       const localRef = qualified?.localRef ?? options.ref;
       const isRow = dim === "rows";
-      const index = isRow ? parseRowRef(localRef) - 1 : parseColumnRef(localRef);
+      const index = isRow
+        ? parseRowRef(localRef) - 1
+        : parseColumnRef(localRef);
 
       file.batch(() => {
         switch (op) {
