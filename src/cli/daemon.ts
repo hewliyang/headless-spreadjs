@@ -9,12 +9,6 @@ import { dispatch } from "./dispatch.js";
 import { FileCache } from "./file-cache.js";
 import { createIoContext, runWithIo } from "./output.js";
 
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-const AUTO_FLUSH_INTERVAL_MS = 5_000;
-const DEFAULT_CACHE_SIZE = 10;
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-const PROBE_TIMEOUT_MS = 3_000;
-
 function envEnabled(value: string | undefined): boolean {
   if (!value) return false;
   return /^(1|true|yes|on)$/i.test(value.trim());
@@ -25,6 +19,15 @@ function envPositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
+
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const AUTO_FLUSH_INTERVAL_MS = envPositiveInt(
+  process.env.HSX_AUTO_FLUSH_MS,
+  5_000,
+);
+const DEFAULT_CACHE_SIZE = 10;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const PROBE_TIMEOUT_MS = 3_000;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

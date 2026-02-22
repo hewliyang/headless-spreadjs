@@ -20,7 +20,7 @@ beforeAll(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hsx-cli-test-"));
   testFile = path.join(tmpDir, "test.xlsx");
   socketPath = path.join(tmpDir, "cli-test-daemon.sock");
-  testEnv = { ...process.env, HSX_SOCKET_PATH: socketPath };
+  testEnv = { ...process.env, HSX_SOCKET_PATH: socketPath, HSX_AUTO_FLUSH_MS: "600000" };
 
   daemonProc = spawn("tsx", [DAEMON_ENTRY], {
     stdio: ["ignore", "ignore", "pipe", "ipc"],
