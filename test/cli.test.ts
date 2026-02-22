@@ -162,6 +162,19 @@ describe("cli", () => {
     assert.equal(data.cells.B3.formula, "B2+1");
   });
 
+  it("set value over existing formula clears formula", async () => {
+    const file = path.join(tmpDir, "ghost-formula.xlsx");
+    await hsx(["create", file]);
+
+    await hsx(["set", file, "A1", '[[{"formula":"=1+1"}]]']);
+    await hsx(["set", file, "A1", '[[{"value":99}]]']);
+
+    const { stdout } = await hsx(["get", file, "A1", "--no-styles"]);
+    const data = JSON.parse(stdout);
+    assert.equal(data.cells.A1.value, 99);
+    assert.equal(data.cells.A1.formula, undefined);
+  });
+
   it("get emits complete JSON for large ranges", async () => {
     const bigFile = path.join(tmpDir, "large-get.xlsx");
     await hsx(["create", bigFile]);
@@ -171,7 +184,10 @@ describe("cli", () => {
       "for (let r = 0; r < 120; r++) { for (let c = 0; c < 12; c++) { sheet.setValue(r, c, 'x'.repeat(120)); } }",
     ]);
 
-    const res = await hsxRaw(["get", bigFile, "A1:L120", "--no-styles"], testEnv);
+    const res = await hsxRaw(
+      ["get", bigFile, "A1:L120", "--no-styles"],
+      testEnv,
+    );
     assert.equal(res.code, 0);
     assert.ok(res.stdout.length > 65_536);
 
@@ -190,7 +206,13 @@ describe("cli", () => {
   });
 
   it("csv --mode formula", async () => {
-    const { stdout } = await hsx(["csv", testFile, "A1:B3", "--mode", "formula"]);
+    const { stdout } = await hsx([
+      "csv",
+      testFile,
+      "A1:B3",
+      "--mode",
+      "formula",
+    ]);
     const lines = stdout.trim().split("\n");
     assert.equal(lines[0], "Name,Qty");
     assert.equal(lines[1], "Alice,4");
@@ -520,12 +542,19 @@ describe("cli", () => {
       'workbook.getSheetFromName("Sheet1").setValue(0, 0, 2); workbook.getSheetFromName("Sheet2").setFormula(0, 0, "Sheet1!A1*5"); workbook.getSheetFromName("Sheet3").setFormula(0, 0, "Sheet2!A1+1");',
     ]);
 
-    const { stdout } = await hsx(["deps", traceFile, "Sheet3!A1", "--recursive"]);
+    const { stdout } = await hsx([
+      "deps",
+      traceFile,
+      "Sheet3!A1",
+      "--recursive",
+    ]);
     const result = JSON.parse(stdout) as {
       dependencies: Array<{ sheet: string; ref: string; hop: number }>;
     };
 
-    const byHop = new Map(result.dependencies.map((d) => [`${d.sheet}!${d.ref}`, d.hop]));
+    const byHop = new Map(
+      result.dependencies.map((d) => [`${d.sheet}!${d.ref}`, d.hop]),
+    );
     assert.equal(byHop.get("Sheet2!A1"), 1);
     assert.equal(byHop.get("Sheet1!A1"), 2);
   });
@@ -537,19 +566,28 @@ describe("cli", () => {
       references: Array<{ sheet: string; cell: string; hop: number }>;
     };
 
-    const refsSet = new Set(result.references.map((r) => `${r.sheet}!${r.cell}`));
+    const refsSet = new Set(
+      result.references.map((r) => `${r.sheet}!${r.cell}`),
+    );
     assert.ok(refsSet.has("Sheet2!A1"));
     assert.ok(!refsSet.has("Sheet3!A1"));
   });
 
   it("refs supports recursive multi-hop tracing", async () => {
     const traceFile = path.join(tmpDir, "trace-deps.xlsx");
-    const { stdout } = await hsx(["refs", traceFile, "Sheet1!A1", "--recursive"]);
+    const { stdout } = await hsx([
+      "refs",
+      traceFile,
+      "Sheet1!A1",
+      "--recursive",
+    ]);
     const result = JSON.parse(stdout) as {
       references: Array<{ sheet: string; cell: string; hop: number }>;
     };
 
-    const byHop = new Map(result.references.map((r) => [`${r.sheet}!${r.cell}`, r.hop]));
+    const byHop = new Map(
+      result.references.map((r) => [`${r.sheet}!${r.cell}`, r.hop]),
+    );
     assert.equal(byHop.get("Sheet2!A1"), 1);
     assert.equal(byHop.get("Sheet3!A1"), 2);
   });
@@ -614,7 +652,10 @@ describe("cli", () => {
   });
 
   it("parses --timeout even after command args", async () => {
-    const res = await hsxRaw(["--no-daemon", "eval", testFile, "--timeout"], testEnv);
+    const res = await hsxRaw(
+      ["--no-daemon", "eval", testFile, "--timeout"],
+      testEnv,
+    );
     assert.equal(res.code, 1);
     assert.ok(res.stderr.includes("Usage: --timeout <seconds>"));
   });
@@ -641,7 +682,9 @@ describe("cli", () => {
       testEnv,
     );
     assert.equal(res.code, 1);
-    assert.ok(res.stderr.includes("timed out") || res.stderr.includes("aborted"));
+    assert.ok(
+      res.stderr.includes("timed out") || res.stderr.includes("aborted"),
+    );
   });
 
   it("daemon status on missing socket does not auto-start", async () => {
@@ -706,11 +749,16 @@ describe("cli", () => {
         });
         wtDaemon?.on("exit", (code) => {
           clearTimeout(timeout);
-          reject(new Error(`write-through daemon exited early with code ${code}`));
+          reject(
+            new Error(`write-through daemon exited early with code ${code}`),
+          );
         });
       });
 
-      await exec("tsx", [CLI, "create", wtFile], { env: wtEnv, timeout: 30_000 });
+      await exec("tsx", [CLI, "create", wtFile], {
+        env: wtEnv,
+        timeout: 30_000,
+      });
       await exec("tsx", [CLI, "set", wtFile, "A1", '[[{"value":"sync"}]]'], {
         env: wtEnv,
         timeout: 30_000,
@@ -723,10 +771,14 @@ describe("cli", () => {
       );
       assert.equal(JSON.parse(stdout).cells.A1.value, "sync");
 
-      const { stdout: statusOut } = await exec("tsx", [CLI, "daemon", "status"], {
-        env: wtEnv,
-        timeout: 30_000,
-      });
+      const { stdout: statusOut } = await exec(
+        "tsx",
+        [CLI, "daemon", "status"],
+        {
+          env: wtEnv,
+          timeout: 30_000,
+        },
+      );
       assert.equal(JSON.parse(statusOut).writeThrough, true);
     } finally {
       await hsxRaw(["daemon", "stop"], wtEnv);

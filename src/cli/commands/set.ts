@@ -129,6 +129,7 @@ export async function set(
               sheet.setFormula(row, col, f);
               written++;
             } else if (cell.value !== undefined) {
+              sheet.setFormula(row, col, "");
               sheet.setValue(row, col, cell.value);
               written++;
             }
