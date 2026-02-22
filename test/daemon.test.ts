@@ -191,8 +191,10 @@ describe("daemon", () => {
     );
     assert.equal(setRes.exitCode, 0);
     assert.deepStrictEqual(JSON.parse(setRes.stdout), {
+      success: true,
       written: 6,
       range: "A1:B3",
+      messages: [],
     });
 
     const getRes = await sendCommand(
