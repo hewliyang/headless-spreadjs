@@ -2,14 +2,29 @@
 
 ## [Unreleased]
 
-## [0.0.4] - 2026-02-22
+## [0.0.6] - 2026-02-22
 
 ### Features
 
+- **Daemon mode** — `hsx` now runs a background daemon by default to avoid re-initializing SpreadJS on every command. Auto-starts on first use, caches open workbooks (LRU), auto-exits after idle timeout. Commands: `hsx daemon start|stop|status|flush`.
+- **CLI:** `hsx screenshot` — render sheets to PNG via Playwright (optional peer dependency).
+- **CLI:** `hsx diff` — compare two workbooks cell-by-cell, with `--epsilon` for floating-point tolerance.
+- **CLI:** `hsx deps` — show formula dependency graph for a cell reference.
 - **CLI:** `hsx csv` now supports `--mode value|formula|both`, plus `--formulas` shorthand for formula-focused exports.
+- **CLI:** `hsx eval` gains a `range(ref)` helper for easy A1-notation cell access in scripts.
+
+### Fixed
+
+- **CLI:** `set` now properly clears existing formulas when overwriting with plain values.
+- **CLI:** `set` style bugs and performance improvements.
+- **CLI:** Range expansion for set operations.
+- **CLI:** CSV argument parsing and daemon auto-flush on interval.
+- **CLI:** Screenshots now include column and row headers.
 
 ### Chores
 
+- Moved Playwright to an optional peer dependency.
+- Renamed `skill/` to `skills/` for CLI discovery conventions.
 - Added `AGENTS.md` with project overview, structure, dev commands, and release workflow.
 
 ## [0.0.3] - 2026-02-15
