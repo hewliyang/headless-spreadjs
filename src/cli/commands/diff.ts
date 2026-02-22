@@ -83,9 +83,22 @@ function collectUsedCells(
   return cells;
 }
 
-function valuesEqual(left: unknown, right: unknown): boolean {
+const DEFAULT_NUMERIC_EPSILON = 1e-8;
+
+function numbersNearlyEqual(a: number, b: number, epsilon: number): boolean {
+  if (a === b) return true;
+  const diff = Math.abs(a - b);
+  const largest = Math.max(Math.abs(a), Math.abs(b));
+  return diff <= largest * epsilon;
+}
+
+function valuesEqual(left: unknown, right: unknown, epsilon: number): boolean {
   if (Object.is(left, right)) {
     return true;
+  }
+
+  if (typeof left === "number" && typeof right === "number") {
+    return numbersNearlyEqual(left, right, epsilon);
   }
 
   if (left instanceof Date && right instanceof Date) {
@@ -132,6 +145,7 @@ export async function diff(
     signal?: AbortSignal | null;
     inlineLimit?: number;
     previewLimit?: number;
+    epsilon?: number;
   },
 ): Promise<void> {
   const signal = options?.signal;
@@ -143,6 +157,10 @@ export async function diff(
     options?.previewLimit && options.previewLimit > 0
       ? options.previewLimit
       : DEFAULT_PREVIEW_LIMIT;
+  const epsilon =
+    options?.epsilon !== undefined && options.epsilon >= 0
+      ? options.epsilon
+      : DEFAULT_NUMERIC_EPSILON;
 
   await withFile(leftFilePath, ({ workbook: leftWorkbook }) =>
     withFile(rightFilePath, ({ workbook: rightWorkbook }) => {
@@ -253,7 +271,7 @@ export async function diff(
 
           const sameFormula =
             (left.formula || null) === (right.formula || null);
-          const sameValue = valuesEqual(left.value, right.value);
+          const sameValue = valuesEqual(left.value, right.value, epsilon);
           if (sameFormula && sameValue) {
             continue;
           }

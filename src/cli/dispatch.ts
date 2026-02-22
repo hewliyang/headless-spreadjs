@@ -48,6 +48,7 @@ Options:
 Diff options:
   --inline-limit <n>                         Max inline diff rows before spooling to tmp file
   --preview-limit <n>                        Number of diff rows kept in stdout JSON
+  --epsilon <n>                              Relative tolerance for numeric comparison (default: 1e-8)
 
 CSV options:
   --mode value|formula|both  value: calculated values (default)
@@ -303,6 +304,7 @@ export async function dispatch(
           flag(rest, "--preview-limit"),
           "--preview-limit",
         ),
+        epsilon: parseOptionalFloat(flag(rest, "--epsilon"), "--epsilon"),
         signal,
       });
       break;
