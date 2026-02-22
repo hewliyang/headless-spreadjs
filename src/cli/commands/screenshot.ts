@@ -132,8 +132,13 @@ const CLIP_RANGE_SCRIPT = `(opts) => {
 
   if (!first || first.x == null || !last || last.x == null) return null;
 
-  const x = first.x + hostRect.left;
-  const y = first.y + hostRect.top;
+  var rhw = sheet.options.rowHeaderVisible !== false
+    ? sheet.getColumnWidth(0, GC.Spread.Sheets.SheetArea.rowHeader) : 0;
+  var chh = sheet.options.colHeaderVisible !== false
+    ? sheet.getRowHeight(0, GC.Spread.Sheets.SheetArea.colHeader) : 0;
+
+  const x = first.x + hostRect.left - rhw;
+  const y = first.y + hostRect.top - chh;
   const right  = last.x + last.width  + hostRect.left;
   const bottom = last.y + last.height + hostRect.top;
 
