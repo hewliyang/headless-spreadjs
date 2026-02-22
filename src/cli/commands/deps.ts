@@ -4,7 +4,7 @@ import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
 
-const USED_RANGE_TYPE_DATA_FORMULA = 16 | 32;
+const USED_RANGE_TYPE_FORMULA = 32;
 const DEFAULT_RANGE_EXPANSION_LIMIT = 128;
 const DEFAULT_MAX_FORMULA_SCAN = 250_000;
 
@@ -265,7 +265,7 @@ function collectFormulaNodes(
     let usedRange: RawUsedRange | null = null;
 
     try {
-      usedRange = sheet.getUsedRange(USED_RANGE_TYPE_DATA_FORMULA);
+      usedRange = sheet.getUsedRange(USED_RANGE_TYPE_FORMULA);
     } catch {
       continue;
     }

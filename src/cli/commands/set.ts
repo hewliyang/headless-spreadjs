@@ -2,12 +2,12 @@ import { cellToA1, parseRef, type RangeRef, rangeDimensions } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { ok, readInput } from "../output.js";
-import { applyStyles, type CellStyles } from "../styles.js";
+import { applyStyles, type CellStyle } from "../styles.js";
 
 interface CellInput {
   value?: unknown;
   formula?: string;
-  cellStyles?: CellStyles;
+  style?: CellStyle;
 }
 
 function formatRange(ref: RangeRef): string {
@@ -134,8 +134,8 @@ export async function set(
               written++;
             }
 
-            if (cell.cellStyles) {
-              applyStyles(sheet, row, col, cell.cellStyles, GC);
+            if (cell.style) {
+              applyStyles(sheet, row, col, cell.style, GC);
             }
           }
         }

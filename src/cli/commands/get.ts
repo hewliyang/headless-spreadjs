@@ -2,7 +2,7 @@ import { cellToA1, parseRef, rangeDimensions } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
-import { type SerializedStyle, serializeStyle } from "../styles.js";
+import { type CellStyle, serializeStyle } from "../styles.js";
 
 export async function get(
   filePath: string,
@@ -29,7 +29,7 @@ export async function get(
         {
           value: unknown;
           formula?: string;
-          styles?: SerializedStyle;
+          style?: CellStyle;
         }
       > = {};
       let cellCount = 0;
@@ -61,7 +61,7 @@ export async function get(
             if (style) {
               const serialized = serializeStyle(style);
               if (serialized) {
-                cell.styles = serialized;
+                cell.style = serialized;
               }
             }
           }

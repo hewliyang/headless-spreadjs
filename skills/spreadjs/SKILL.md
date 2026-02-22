@@ -51,21 +51,28 @@ Dependency tracing defaults to one-hop (`--depth 1`). Use `--depth N` for bounde
 
 ```bash
 hsx set file.xlsx "A1:B3" '[
-  [{"value":"Name","cellStyles":{"fontWeight":"bold"}}, {"value":"Qty","cellStyles":{"fontWeight":"bold"}}],
+  [{"value":"Name","style":{"fontStyle":{"bold":true}}}, {"value":"Qty","style":{"fontStyle":{"bold":true}}}],
   [{"value":"Alice"}, {"value":4}],
   [{"value":"Bob"}, {"formula":"=B2+1"}]
 ]'
 ```
 
-Each cell: `{"value": ...}`, `{"formula": "=..."}`, optional `"cellStyles": {...}`.
+Each cell: `{"value": ...}`, `{"formula": "=..."}`, optional `"style": {...}`.
 
-cellStyles: `fontWeight` (bold/normal), `fontStyle` (italic/normal), `fontSize`, `fontFamily`, `fontColor`, `backgroundColor`, `horizontalAlignment` (left/center/right), `numberFormat`.
+`style` (SpreadJS-style):
+- `fontStyle`: `{ bold?: boolean, italic?: boolean, underline?: boolean }`
+- `fontSize`: CSS size string (e.g. `"12px"`)
+- `fontFamily`
+- `foreColor`
+- `backColor`
+- `hAlign`: SpreadJS `HorizontalAlign` enum value
+- `formatter`
 
 ## Read
 
 ```bash
 hsx get file.xlsx "A1:B3"
-# → {"cells":{"A1":{"value":"Name","styles":{"bold":true}},"B3":{"value":5,"formula":"B2+1"}}, ...}
+# → {"cells":{"A1":{"value":"Name","style":{"fontStyle":{"bold":true}}},"B3":{"value":5,"formula":"B2+1"}}, ...}
 
 hsx csv file.xlsx "A1:B3"
 # → Name,Qty

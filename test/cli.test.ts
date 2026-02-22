@@ -336,14 +336,14 @@ describe("cli", () => {
     assert.equal(objs[0].name, "C1");
   });
 
-  it("set with styles round-trips", async () => {
+  it("set with style.fontStyle object round-trips", async () => {
     const cells = [
       [
         {
           value: "Bold",
-          cellStyles: {
-            fontWeight: "bold",
-            backgroundColor: "#FF0000",
+          style: {
+            fontStyle: { bold: true, italic: true, underline: true },
+            backColor: "#FF0000",
           },
         },
       ],
@@ -352,8 +352,10 @@ describe("cli", () => {
 
     const { stdout } = await hsx(["get", testFile, "D1"]);
     const data = JSON.parse(stdout);
-    assert.equal(data.cells.D1.styles.bold, true);
-    assert.equal(data.cells.D1.styles.backgroundColor.toLowerCase(), "#ff0000");
+    assert.equal(data.cells.D1.style.fontStyle.bold, true);
+    assert.equal(data.cells.D1.style.fontStyle.italic, true);
+    assert.equal(data.cells.D1.style.fontStyle.underline, true);
+    assert.equal(data.cells.D1.style.backColor.toLowerCase(), "#ff0000");
   });
 
   it("set auto-expands single-cell refs to input shape", async () => {
@@ -378,13 +380,13 @@ describe("cli", () => {
     assert.equal(data.cells.A21.value, "r2");
   });
 
-  it("set supports cellStyles.bold alias", async () => {
-    const cells = [[{ value: "Bold alias", cellStyles: { bold: true } }]];
+  it("set supports style.fontStyle.bold", async () => {
+    const cells = [[{ value: "Bold alias", style: { fontStyle: { bold: true } } }]];
     await hsx(["set", testFile, "G1", JSON.stringify(cells)]);
 
     const { stdout } = await hsx(["get", testFile, "G1"]);
     const data = JSON.parse(stdout);
-    assert.equal(data.cells.G1.styles.bold, true);
+    assert.equal(data.cells.G1.style.fontStyle.bold, true);
   });
 
   it("set via stdin", async () => {
@@ -432,6 +434,18 @@ describe("cli", () => {
     const { stdout } = await hsx(["search", testFile, "^(Jan|Feb)", "--regex"]);
     const data = JSON.parse(stdout);
     assert.equal(data.totalFound, 2);
+  });
+
+  it("search respects sparse used-range bounds", async () => {
+    const sparseFile = path.join(tmpDir, "search-sparse.xlsx");
+    await hsx(["create", sparseFile]);
+    await hsx(["eval", sparseFile, 'sheet.setValue(999999, 0, "tail")']);
+
+    const res = await hsxRaw(["--timeout", "2", "search", sparseFile, "nomatch"], testEnv);
+    assert.equal(res.code, 0, res.stderr);
+
+    const data = JSON.parse(res.stdout) as { totalFound: number };
+    assert.equal(data.totalFound, 0);
   });
 
   it("copy range", async () => {
@@ -592,6 +606,31 @@ describe("cli", () => {
     assert.equal(byHop.get("Sheet3!A1"), 2);
   });
 
+  it("refs avoids sparse data-only used-range scans", async () => {
+    const sparseFile = path.join(tmpDir, "trace-refs-sparse.xlsx");
+    await hsx(["create", sparseFile]);
+    await hsx([
+      "eval",
+      sparseFile,
+      'sheet.setValue(999999, 0, "tail"); sheet.setValue(0, 0, 123);',
+    ]);
+
+    const res = await hsxRaw(
+      ["--timeout", "2", "refs", sparseFile, "Sheet1!A1"],
+      testEnv,
+    );
+    assert.equal(res.code, 0, res.stderr);
+
+    const result = JSON.parse(res.stdout) as {
+      references: Array<{ sheet: string; cell: string; hop: number }>;
+      stats: { scannedFormulaCells: number; indexedFormulaCells: number };
+    };
+
+    assert.deepEqual(result.references, []);
+    assert.equal(result.stats.scannedFormulaCells, 0);
+    assert.equal(result.stats.indexedFormulaCells, 0);
+  });
+
   it("insert and delete rows", async () => {
     await hsx(["rc", testFile, "insert", "rows", "--ref", "2"]);
     const { stdout } = await hsx(["get", testFile, "A2", "--no-styles"]);
@@ -606,6 +645,61 @@ describe("cli", () => {
 
   it("resize columns", async () => {
     await hsx(["resize", testFile, "--columns", "A:B", "--width", "120"]);
+  });
+
+  it("rc validates dimension names", async () => {
+    const res = await hsxRaw(
+      ["rc", testFile, "freeze", "banana", "--ref", "2"],
+      testEnv,
+    );
+    assert.equal(res.code, 1);
+    assert.ok(res.stderr.includes("Invalid rc dimension"));
+  });
+
+  it("rc insert row alias shifts cell data", async () => {
+    const shiftFile = path.join(tmpDir, "rc-insert-row-alias.xlsx");
+    await hsx(["create", shiftFile]);
+    await hsx(["set", shiftFile, "A20", '[[{"value":"mark"}]]']);
+
+    await hsx(["rc", shiftFile, "insert", "row", "--ref", "20", "--count", "2"]);
+
+    const { stdout } = await hsx(["get", shiftFile, "A22", "--no-styles"]);
+    const data = JSON.parse(stdout);
+    assert.equal(data.cells.A22.value, "mark");
+  });
+
+  it("rc accepts sheet-qualified row refs", async () => {
+    const shiftFile = path.join(tmpDir, "rc-insert-sheet-qualified.xlsx");
+    await hsx(["create", shiftFile]);
+    await hsx(["sheet", shiftFile, "create", "Data"]);
+    await hsx(["set", shiftFile, "Data!A20", '[[{"value":"mark"}]]']);
+
+    await hsx([
+      "rc",
+      shiftFile,
+      "insert",
+      "rows",
+      "--ref",
+      "Data!20",
+      "--count",
+      "2",
+    ]);
+
+    const { stdout } = await hsx(["get", shiftFile, "Data!A22", "--no-styles"]);
+    const data = JSON.parse(stdout);
+    assert.equal(data.cells.A22.value, "mark");
+  });
+
+  it("resize without explicit --rows limits to used range", async () => {
+    const resizeFile = path.join(tmpDir, "resize-used-range.xlsx");
+    await hsx(["create", resizeFile]);
+    await hsx(["set", resizeFile, "A1", '[[{"value":"x"}]]']);
+
+    const res = await hsxRaw(
+      ["--timeout", "1", "resize", resizeFile, "--height", "20"],
+      testEnv,
+    );
+    assert.equal(res.code, 0, res.stderr);
   });
 
   it("daemon flush persists buffered writes to disk", async () => {
@@ -678,7 +772,13 @@ describe("cli", () => {
 
   it("times out long-running daemon commands", async () => {
     const res = await hsxRaw(
-      ["--timeout", "1", "resize", testFile, "--height", "20"],
+      [
+        "--timeout",
+        "1",
+        "eval",
+        testFile,
+        "await new Promise((r) => setTimeout(r, 1500)); return 1;",
+      ],
       testEnv,
     );
     assert.equal(res.code, 1);

@@ -303,7 +303,11 @@ describe("daemon", () => {
     const startedAt = Date.now();
     const res = await sendCommand(
       socketPath,
-      ["resize", file, "--height", "20"],
+      [
+        "eval",
+        file,
+        "await new Promise((r) => setTimeout(r, 1500)); return 1;",
+      ],
       tmpDir,
       undefined,
       200,
@@ -324,7 +328,11 @@ describe("daemon", () => {
 
     const longRequest = sendCommand(
       socketPath,
-      ["resize", file, "--height", "20"],
+      [
+        "eval",
+        file,
+        "await new Promise((r) => setTimeout(r, 1500)); return 1;",
+      ],
       tmpDir,
       undefined,
       200,
@@ -351,7 +359,11 @@ describe("daemon", () => {
       const socket = connect({ path: socketPath }, () => {
         socket.write(
           `${JSON.stringify({
-            argv: ["resize", file, "--height", "20"],
+            argv: [
+              "eval",
+              file,
+              "await new Promise((r) => setTimeout(r, 4000)); return 1;",
+            ],
             cwd: tmpDir,
             timeoutMs: 5_000,
           })}\n`,

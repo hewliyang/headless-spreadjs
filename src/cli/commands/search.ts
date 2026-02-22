@@ -42,21 +42,25 @@ export async function search(
 
         if (options.sheet && sheetName !== options.sheet) continue;
 
-        let usedRows = 0;
-        let usedCols = 0;
+        let startRow = 0;
+        let endRow = 0;
+        let startCol = 0;
+        let endCol = 0;
         try {
           const range = ws.getUsedRange(16 | 32); // data | formula
-          if (range && range.rowCount > 0) {
-            usedRows = range.row + range.rowCount;
-            usedCols = range.col + range.colCount;
+          if (range && range.rowCount > 0 && range.colCount > 0) {
+            startRow = range.row;
+            endRow = range.row + range.rowCount;
+            startCol = range.col;
+            endCol = range.col + range.colCount;
           }
         } catch {
           continue;
         }
 
-        for (let r = 0; r < usedRows && matches.length < max; r++) {
+        for (let r = startRow; r < endRow && matches.length < max; r++) {
           throwIfAborted(signal);
-          for (let c = 0; c < usedCols && matches.length < max; c++) {
+          for (let c = startCol; c < endCol && matches.length < max; c++) {
             const value = ws.getValue(r, c);
             const formula = ws.getFormula(r, c);
 

@@ -342,9 +342,37 @@ export async function dispatch(
 
     case "rc": {
       const file = requireArg(rest, 0, "rc <file> <op> <dim>");
-      const op = requireArg(rest, 1, "rc <file> <op> <dim>") as RcOp;
-      const dim = requireArg(rest, 2, "rc <file> <op> <dim>") as RcDim;
-      await rowsCols(file, op, dim, {
+      const opRaw = requireArg(rest, 1, "rc <file> <op> <dim>");
+      const dimRaw = requireArg(rest, 2, "rc <file> <op> <dim>");
+      const validOps = new Set<RcOp>([
+        "insert",
+        "delete",
+        "hide",
+        "unhide",
+        "freeze",
+        "unfreeze",
+      ]);
+      const dimAliases: Record<string, RcDim> = {
+        rows: "rows",
+        row: "rows",
+        columns: "columns",
+        column: "columns",
+        cols: "columns",
+        col: "columns",
+      };
+
+      if (!validOps.has(opRaw as RcOp)) {
+        throw new Error(`Invalid rc operation: ${opRaw}`);
+      }
+
+      const dim = dimAliases[dimRaw.toLowerCase()];
+      if (!dim) {
+        throw new Error(
+          `Invalid rc dimension: ${dimRaw}. Expected rows|columns`,
+        );
+      }
+
+      await rowsCols(file, opRaw as RcOp, dim, {
         sheet: flag(rest, "--sheet"),
         ref: flag(rest, "--ref"),
         count: parseOptionalInt(flag(rest, "--count"), "--count"),
