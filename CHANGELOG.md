@@ -2,9 +2,15 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-02-22
+
 ### Features
 
 - **CLI:** `hsx csv` now supports `--mode value|formula|both`, plus `--formulas` shorthand for formula-focused exports.
+
+### Chores
+
+- Added `AGENTS.md` with project overview, structure, dev commands, and release workflow.
 
 ## [0.0.3] - 2026-02-15
 
