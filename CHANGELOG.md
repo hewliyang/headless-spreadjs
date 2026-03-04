@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-03-04
+
+### Features
+
+- Enable dynamic-array formula support (`allowDynamicArray`) by default — unlocks FILTER, SORT, UNIQUE, SEQUENCE, VSTACK, HSTACK, MAP, REDUCE, and other spill-based functions.
+
 ## [0.0.6] - 2026-02-22
 
 ### Features

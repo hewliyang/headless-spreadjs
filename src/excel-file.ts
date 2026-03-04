@@ -184,6 +184,8 @@ export class ExcelFile {
     const gc = getGC();
     this.workbook = workbook ?? new gc.Spread.Sheets.Workbook();
     expandSheetDefaults(this.workbook);
+
+    this.workbook.options.allowDynamicArray = true;
   }
 
   batch<T>(fn: () => T): T;
