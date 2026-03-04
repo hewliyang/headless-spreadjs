@@ -46,7 +46,7 @@ jobs:
           echo "$NOTES" > /tmp/release-notes.md
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --access public --tag latest
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
