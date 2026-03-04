@@ -4,3 +4,6 @@ examples/output/
 *.tgz
 .DS_Store
 ~$*
+
+infographic.html
+infographic.png
