@@ -1,6 +1,7 @@
 import { parseRef } from "../a1.js";
 import { withFile } from "../context.js";
 import { fail, ok, readInput } from "../output.js";
+import { ensureSheetSize, expandAllSheets } from "../sheet-size.js";
 
 export async function evalCode(
   filePath: string,
@@ -12,6 +13,7 @@ export async function evalCode(
   await withFile(
     filePath,
     async ({ file, workbook, GC }) => {
+      expandAllSheets(workbook);
       const sheet = workbook.getActiveSheet();
 
       const range = (ref: string) => {
@@ -36,6 +38,8 @@ export async function evalCode(
         if (rowCount < 1 || colCount < 1) {
           throw new Error(`Invalid range reference: ${ref}`);
         }
+
+        ensureSheetSize(targetSheet, parsed.end.row + 1, parsed.end.col + 1);
 
         return targetSheet.getRange(
           parsed.start.row,

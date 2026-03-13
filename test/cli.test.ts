@@ -175,6 +175,24 @@ describe("cli", () => {
     assert.equal(data.cells.A1.formula, undefined);
   });
 
+  it("set auto-expands newly created non-active sheets beyond 200x20", async () => {
+    const file = path.join(tmpDir, "set-expand-non-active.xlsx");
+    await hsx(["create", file]);
+    await hsx(["sheet", file, "create", "Data"]);
+
+    await hsx(["set", file, "Data!U201", '[[{"value":"ok"}]]']);
+
+    const { stdout } = await hsx(["get", file, "Data!U201", "--no-styles"]);
+    const data = JSON.parse(stdout);
+    assert.equal(data.cellCount, 1);
+    assert.equal(data.cells.U201.value, "ok");
+
+    const { stdout: infoOut } = await hsx(["info", file]);
+    const info = JSON.parse(infoOut);
+    const dataSheet = info.sheets.find((s: { name: string }) => s.name === "Data");
+    assert.equal(dataSheet.usedRange, "U201:U201");
+  });
+
   it("get emits complete JSON for large ranges", async () => {
     const bigFile = path.join(tmpDir, "large-get.xlsx");
     await hsx(["create", bigFile]);
@@ -313,6 +331,40 @@ describe("cli", () => {
     const result = JSON.parse(stdout);
     assert.equal(result.result.activeB2, 42);
     assert.equal(result.result.dataA1, "ok");
+  });
+
+  it("eval auto-expands newly created non-active sheets beyond 200x20", async () => {
+    const rangeFile = path.join(tmpDir, "eval-range-expand.xlsx");
+    await hsx(["create", rangeFile]);
+    await hsx(["sheet", rangeFile, "create", "Data Sheet"]);
+
+    const { stdout } = await hsx([
+      "eval",
+      rangeFile,
+      `
+      const ws = workbook.getSheetFromName("Data Sheet");
+      ws.setValue(200, 20, "direct");
+      range("'Data Sheet'!V202").value("helper");
+      return {
+        direct: ws.getValue(200, 20),
+        helper: range("'Data Sheet'!V202").value()
+      };
+      `,
+    ]);
+
+    const result = JSON.parse(stdout);
+    assert.equal(result.result.direct, "direct");
+    assert.equal(result.result.helper, "helper");
+
+    const { stdout: getOut } = await hsx([
+      "get",
+      rangeFile,
+      "'Data Sheet'!U201:V202",
+      "--no-styles",
+    ]);
+    const data = JSON.parse(getOut);
+    assert.equal(data.cells.U201.value, "direct");
+    assert.equal(data.cells.V202.value, "helper");
   });
 
   it("eval can create charts", async () => {

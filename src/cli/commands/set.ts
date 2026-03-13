@@ -2,6 +2,7 @@ import { cellToA1, parseRef, type RangeRef, rangeDimensions } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { ok, readInput } from "../output.js";
+import { ensureSheetSize } from "../sheet-size.js";
 import { applyStyles, type CellStyle } from "../styles.js";
 
 interface CellInput {
@@ -111,6 +112,8 @@ export async function set(
       }
 
       let written = 0;
+
+      ensureSheetSize(sheet, target.end.row + 1, target.end.col + 1);
 
       file.batch(() => {
         for (let r = 0; r < rows; r++) {
