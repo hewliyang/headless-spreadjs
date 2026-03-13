@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Docs
+
+- Updated `skills/spreadjs/SKILL.md` with modern Excel / dynamic-array formula guidance for `hsx` workflows.
+
 ## [0.0.8] - 2026-03-13
 
 ### Fixed

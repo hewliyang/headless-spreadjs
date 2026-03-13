@@ -234,3 +234,30 @@ The file is at `./spreadjs.d.ts`. Use `grep -n` to find what you need, then `rea
 - Use `hsx deps` / `hsx refs` for repeatable lineage checks; use `eval` for custom one-offs
 - Prefer uniform column widths; use empty columns for indentation
 - Always specify units in headers: `Revenue ($mm)`, `Growth (%)`
+
+## Modern Excel Formula Guidelines (365/2022+)
+
+Prefer dynamic arrays & spill formulas over helper columns and copy-down formulas.
+
+| Instead of... | Use... |
+|---|---|
+| INDEX/MATCH | XLOOKUP or XMATCH |
+| MOD + MATCH wrapping logic | VSTACK + DROP + TAKE to rearrange arrays |
+| Copying formulas down rows | A single spill formula (FILTER, SORT, UNIQUE, SEQUENCE) |
+| Nested IF chains | IFS, SWITCH, or FILTER |
+| Helper columns for intermediate values | LET to name intermediate steps |
+| IFERROR(VLOOKUP(...)) | XLOOKUP (has built-in if_not_found arg) |
+| SUMPRODUCT hacks for conditional logic | FILTER + SUM, or BYROW/BYCOL |
+| VBA / repeated formulas for transforms | MAP, REDUCE, LAMBDA |
+| Manual array reshaping | WRAPCOLS, WRAPROWS, TOCOL, TOROW |
+| CONCATENATE or `&` in loops | TEXTJOIN or TEXTSPLIT |
+| INDEX(range, MATCH(...), MATCH(...)) | CHOOSECOLS / CHOOSEROWS |
+
+Rules:
+
+- Always use LET when a sub-expression appears more than once.
+- Prefer one spilling formula over N copied formulas.
+- Use LAMBDA + names for reusable logic instead of complex nested formulas.
+- Use VSTACK/HSTACK to combine arrays instead of building results cell-by-cell.
+
+Your formulas must be human-readable.
