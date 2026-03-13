@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-03-13
+
+### Fixed
+
+- **CLI:** `set` now expands newly created sheets before writing, preventing silent data loss on non-active sheets beyond SpreadJS' default `200 × 20` grid.
+- **CLI:** `eval` and `range(ref)` now expand newly created target sheets before access, fixing silent drops and truncated results on off-grid writes.
+- **CLI:** `sheet create` now initializes new worksheets at full size so later commands behave consistently with existing sheets.
+- Added regression tests covering non-active sheet writes and `eval` access beyond `U201` / `V202`.
+
 ## [0.0.7] - 2026-03-04
 
 ### Features
