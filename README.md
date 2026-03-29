@@ -88,6 +88,101 @@ Environment variables:
 | `HSX_CACHE_SIZE`    | `10`             | LRU workbook cache size      |
 | `HSX_WRITE_THROUGH` | `0`              | Immediate writes when truthy |
 
+## Hooks
+
+`hsx` supports extension hooks — custom code that runs at specific points in the CLI workflow. Use them to enforce formatting conventions, set workbook defaults, validate before save, etc.
+
+### Discovery
+
+Hook files are auto-discovered from:
+
+1. `.headless-spreadjs/hooks/*.ts` — project-local (takes precedence)
+2. `~/.headless-spreadjs/hooks/*.ts` — global fallback
+
+TypeScript hooks are transpiled on the fly via [jiti](https://github.com/nicedoc/jiti).
+
+### Hook points
+
+| Hook | When | Context |
+| --- | --- | --- |
+| `preCommand` | Before CLI command dispatch | `{ command, args }` |
+| `onOpen` | After workbook opened, before command runs | Full `HookContext` |
+| `preSave` | After mutations, before `save()` | Full `HookContext` with `mutatedRanges` |
+| `postSave` | After `save()` completes | Full `HookContext` with `mutatedRanges` |
+| `postCommand` | After CLI command completes | `{ command, args, error? }` |
+
+`HookContext` includes `command`, `args`, `filePath`, `file` (ExcelFile), `workbook` (SpreadJS Workbook), `GC` (SpreadJS namespace), and `mutatedRanges`.
+
+In daemon mode, `onOpen` fires on **every command** (not just the first open), since the workbook stays cached in memory.
+
+### Writing a hook
+
+Hook files export a default function that receives a `HookAPI` instance:
+
+```ts
+// .headless-spreadjs/hooks/no-gridlines.ts
+import type { HookAPI, HookContext } from "@hewliyang/headless-spreadjs/hooks";
+
+export default function (hsx: HookAPI) {
+  hsx.on("onOpen", function hideGridlines(ctx: HookContext) {
+    for (let i = 0; i < ctx.workbook.getSheetCount(); i++) {
+      const sheet = ctx.workbook.getSheet(i);
+      sheet.options.gridline = {
+        showVerticalGridline: false,
+        showHorizontalGridline: false,
+      };
+    }
+  });
+}
+```
+
+### Fine-grained mutations
+
+Commands like `set`, `clear`, and `copy` report exactly which cells they changed via `ctx.mutatedRanges`. Hooks can use this to only process affected cells instead of scanning the entire workbook:
+
+```ts
+hsx.on("preSave", function colorInputs(ctx: HookContext) {
+  for (const range of ctx.mutatedRanges) {
+    const ws = range.sheet
+      ? ctx.workbook.getSheetFromName(range.sheet)
+      : ctx.workbook.getActiveSheet();
+    for (let r = range.startRow; r <= range.endRow; r++) {
+      for (let c = range.startCol; c <= range.endCol; c++) {
+        const formula = ws.getFormula(r, c);
+        if (!formula && typeof ws.getValue(r, c) === "number") {
+          ws.getCell(r, c).foreColor("Blue");
+        }
+      }
+    }
+  }
+});
+```
+
+For opaque commands like `eval`, `mutatedRanges` is empty — hooks can fall back to scanning all used cells.
+
+### Output
+
+Hook `console.log` output is captured and prefixed with `[hook-type:fnName]`. By default output goes to stderr. Override per-hook:
+
+```ts
+hsx.on("preSave", { output: "stdout" }, function myHook(ctx) { ... });
+hsx.on("preSave", { output: "none" }, function quietHook(ctx) { ... });
+```
+
+### Disabling hooks
+
+```bash
+hsx --no-hooks set file.xlsx A1 '[[{"value":1}]]'
+```
+
+### Examples
+
+See [`examples/hooks/`](./examples/hooks/) for ready-to-use hooks:
+
+- **`financial-colors.ts`** — auto-colors cells by type (Blue = hardcoded, Black = formula, Green = cross-sheet link) and lints violations after save
+- **`no-gridlines.ts`** — hides gridlines on all sheets when a workbook is opened
+```
+
 ## SDK API
 
 ### `init(options?)`
