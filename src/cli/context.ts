@@ -1,5 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolve } from "node:path";
+import {
+  getCurrentCommand,
+  type MutatedRange,
+  runOnOpenHooks,
+  runPostSaveHooks,
+  runPreSaveHooks,
+} from "../hooks.js";
 import { type ExcelFile, init } from "../index.js";
 import type { GCNamespace, SpreadWorkbook } from "../types.js";
 import { throwIfAborted } from "./abort.js";
@@ -9,6 +16,7 @@ export interface FileContext {
   file: ExcelFile;
   workbook: SpreadWorkbook;
   GC: GCNamespace;
+  markMutated(range: MutatedRange): void;
 }
 
 interface DaemonRuntime {
@@ -55,10 +63,29 @@ export async function withFile<T>(
     throwIfAborted(signal);
     const file = await EF.open(filePath);
     throwIfAborted(signal);
-    const result = await fn({ file, workbook: file.workbook, GC });
+
+    const mutatedRanges: MutatedRange[] = [];
+    const hookCtx = {
+      ...getCurrentCommand(),
+      filePath,
+      file,
+      workbook: file.workbook,
+      GC,
+      mutatedRanges,
+    };
+    await runOnOpenHooks(hookCtx);
+
+    const result = await fn({
+      file,
+      workbook: file.workbook,
+      GC,
+      markMutated: (r) => mutatedRanges.push(r),
+    });
     if (options?.save) {
       throwIfAborted(signal);
+      await runPreSaveHooks(hookCtx);
       await file.save(filePath);
+      await runPostSaveHooks(hookCtx);
     }
     return result;
   } finally {
@@ -86,6 +113,17 @@ async function withFileDaemon<T>(
     cached = { file, absPath };
   }
 
+  const mutatedRanges: MutatedRange[] = [];
+  const hookCtx = {
+    ...getCurrentCommand(),
+    filePath: cached.absPath,
+    file: cached.file,
+    workbook: cached.file.workbook,
+    GC: rt.GC,
+    mutatedRanges,
+  };
+  await runOnOpenHooks(hookCtx);
+
   const wasDirty = rt.fileCache.isDirty(filePath, rt.cwd);
 
   let result: T;
@@ -95,6 +133,7 @@ async function withFileDaemon<T>(
       file: cached.file,
       workbook: cached.file.workbook,
       GC: rt.GC,
+      markMutated: (r) => mutatedRanges.push(r),
     });
   } catch (err) {
     if (!wasDirty) {
@@ -105,17 +144,20 @@ async function withFileDaemon<T>(
 
   if (options?.save) {
     throwIfAborted(signal);
+    await runPreSaveHooks(hookCtx);
     if (rt.writeThrough) {
       try {
         await cached.file.save(cached.absPath);
         throwIfAborted(signal);
         await rt.fileCache.updateMtime(filePath, rt.cwd);
+        await runPostSaveHooks(hookCtx);
       } catch (err) {
         rt.fileCache.invalidate(filePath, rt.cwd);
         throw err;
       }
     } else {
       rt.fileCache.markDirty(filePath, rt.cwd);
+      await runPostSaveHooks(hookCtx);
     }
   }
 
@@ -139,8 +181,9 @@ export async function withNewFile<T>(
   try {
     throwIfAborted(signal);
     const file = new EF();
+    const noop = () => {};
     const result = fn
-      ? await fn({ file, workbook: file.workbook, GC })
+      ? await fn({ file, workbook: file.workbook, GC, markMutated: noop })
       : undefined;
     throwIfAborted(signal);
     await file.save(filePath);
@@ -161,8 +204,9 @@ async function withNewFileDaemon<T>(
 
   const absPath = resolve(rt.cwd, filePath);
   const file = new rt.ExcelFile();
+  const noop = () => {};
   const result = fn
-    ? await fn({ file, workbook: file.workbook, GC: rt.GC })
+    ? await fn({ file, workbook: file.workbook, GC: rt.GC, markMutated: noop })
     : undefined;
   throwIfAborted(signal);
   await file.save(absPath);

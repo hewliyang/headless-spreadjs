@@ -2,12 +2,18 @@ import { existsSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { setHookWriters } from "../hooks.js";
 import { dispose as disposeRuntime, init } from "../index.js";
 import { registerSignalTimeout, throwIfAborted } from "./abort.js";
 import { runWithDaemonRuntime } from "./context.js";
 import { dispatch } from "./dispatch.js";
 import { FileCache } from "./file-cache.js";
-import { createIoContext, runWithIo } from "./output.js";
+import {
+  createIoContext,
+  runWithIo,
+  writeStderr,
+  writeStdout,
+} from "./output.js";
 
 function envEnabled(value: string | undefined): boolean {
   if (!value) return false;
@@ -92,6 +98,10 @@ export async function startDaemon(): Promise<void> {
     } catch {}
   }
 
+  setHookWriters(
+    (data) => writeStdout(data),
+    (data) => writeStderr(data),
+  );
   const { GC, ExcelFile } = await init();
   const cacheSize = envPositiveInt(
     process.env.HSX_CACHE_SIZE,

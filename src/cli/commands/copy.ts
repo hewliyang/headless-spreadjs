@@ -15,7 +15,7 @@ export async function copy(
 
   await withFile(
     filePath,
-    ({ file, workbook }) => {
+    ({ file, workbook, markMutated }) => {
       const srcSheet = src.sheet
         ? workbook.getSheetFromName(src.sheet)
         : workbook.getActiveSheet();
@@ -54,6 +54,14 @@ export async function copy(
             }
           }
         }
+      });
+
+      markMutated({
+        sheet: dst.sheet ?? dstSheet.name(),
+        startRow: dst.start.row,
+        startCol: dst.start.col,
+        endRow: dst.start.row + dstRows - 1,
+        endCol: dst.start.col + dstCols - 1,
       });
 
       ok({

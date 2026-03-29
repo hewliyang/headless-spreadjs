@@ -1,3 +1,8 @@
+import {
+  runPostCommandHooks,
+  runPreCommandHooks,
+  setCurrentCommand,
+} from "../hooks.js";
 import { clear } from "./commands/clear.js";
 import { copy } from "./commands/copy.js";
 import { create } from "./commands/create.js";
@@ -220,14 +225,11 @@ function parseTraceDepth(args: string[]): number {
   return hasFlag(args, "--recursive") ? 50 : 1;
 }
 
-export async function dispatch(
-  args: string[],
-  options?: { signal?: AbortSignal | null },
+async function dispatchCommand(
+  command: string,
+  rest: string[],
+  signal?: AbortSignal | null,
 ): Promise<void> {
-  const signal = options?.signal;
-  const command = args[0];
-  const rest = args.slice(1);
-
   switch (command) {
     case "create": {
       const file = requireArg(rest, 0, "create <file>");
@@ -423,5 +425,32 @@ export async function dispatch(
       writeStderr(`Unknown command: ${command}\n`);
       writeStdout(`${USAGE}\n`);
       throw new Error(`Unknown command: ${command}`);
+  }
+}
+
+export async function dispatch(
+  args: string[],
+  options?: { signal?: AbortSignal | null },
+): Promise<void> {
+  const signal = options?.signal;
+  const command = args[0];
+  const rest = args.slice(1);
+
+  setCurrentCommand({ command, args: rest });
+
+  try {
+    await runPreCommandHooks({ command, args: rest });
+
+    let error: Error | undefined;
+    try {
+      await dispatchCommand(command, rest, signal);
+    } catch (err) {
+      error = err instanceof Error ? err : new Error(String(err));
+      throw error;
+    } finally {
+      await runPostCommandHooks({ command, args: rest, error });
+    }
+  } finally {
+    setCurrentCommand(null);
   }
 }

@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./hooks": {
+      "types": "./dist/hooks.d.ts",
+      "default": "./dist/hooks.js"
     }
   },
   "bin": {
@@ -59,7 +63,8 @@
     "@mescius/spread-sheets-slicers": ">=18.0.0",
     "canvas": "^3.1.0",
     "fflate": "^0.8.2",
-    "happy-dom": "^16.0.0"
+    "happy-dom": "^16.0.0",
+    "jiti": "^2.6.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.15",

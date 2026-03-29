@@ -1,8 +1,14 @@
 import { createRequire } from "node:module";
+import { discoverHooks, setHookWriters } from "../hooks.js";
 import { registerSignalTimeout } from "./abort.js";
 import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
 import { dispatch, USAGE } from "./dispatch.js";
-import { createIoContext, runWithIo } from "./output.js";
+import {
+  createIoContext,
+  runWithIo,
+  writeStderr,
+  writeStdout,
+} from "./output.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -26,9 +32,11 @@ function parseTimeoutValue(raw: string): number {
 function parseGlobalOptions(args: string[]): {
   args: string[];
   timeoutMs: number;
+  noHooks: boolean;
 } {
   const out: string[] = [];
   let timeoutMs = DEFAULT_TIMEOUT_MS;
+  let noHooks = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -48,10 +56,15 @@ function parseGlobalOptions(args: string[]): {
       continue;
     }
 
+    if (arg === "--no-hooks") {
+      noHooks = true;
+      continue;
+    }
+
     out.push(arg);
   }
 
-  return { args: out, timeoutMs };
+  return { args: out, timeoutMs, noHooks };
 }
 
 async function runWithTimeout<T>(
@@ -143,11 +156,13 @@ async function exitWith(
 export async function main(): Promise<void> {
   let args: string[];
   let timeoutMs: number;
+  let noHooks: boolean;
 
   try {
     const parsed = parseGlobalOptions(process.argv.slice(2));
     args = parsed.args;
     timeoutMs = parsed.timeoutMs;
+    noHooks = parsed.noHooks;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
@@ -164,7 +179,9 @@ export async function main(): Promise<void> {
   }
 
   const noDaemon = hasFlag(args, "--no-daemon");
-  const filteredArgs = args.filter((a) => a !== "--no-daemon");
+  const filteredArgs = args.filter(
+    (a) => a !== "--no-daemon" && a !== "--no-hooks",
+  );
 
   if (filteredArgs[0] === "daemon") {
     const sub = filteredArgs[1];
@@ -210,6 +227,15 @@ export async function main(): Promise<void> {
     return exitWith(1, {
       stderr: "Usage: hsx daemon start|stop|status|flush\n",
     });
+  }
+
+  // Wire hook output through CLI's IO layer, then discover
+  setHookWriters(
+    (data) => writeStdout(data),
+    (data) => writeStderr(data),
+  );
+  if (!noHooks) {
+    await discoverHooks();
   }
 
   if (!noDaemon) {

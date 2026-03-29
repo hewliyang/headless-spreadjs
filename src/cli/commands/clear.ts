@@ -12,7 +12,7 @@ export async function clear(
 
   await withFile(
     filePath,
-    ({ file, workbook, GC }) => {
+    ({ file, workbook, GC, markMutated }) => {
       const sheet = parsed.sheet
         ? workbook.getSheetFromName(parsed.sheet)
         : workbook.getActiveSheet();
@@ -50,6 +50,14 @@ export async function clear(
             GC.Spread.Sheets.StorageType.style,
           );
         }
+      });
+
+      markMutated({
+        sheet: parsed.sheet ?? sheet.name(),
+        startRow: parsed.start.row,
+        startCol: parsed.start.col,
+        endRow: parsed.start.row + rows - 1,
+        endCol: parsed.start.col + cols - 1,
       });
 
       ok({ cleared: ref, type: clearType });

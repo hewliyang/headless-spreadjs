@@ -13,8 +13,10 @@
     "rootDir": "..",
     "baseUrl": "..",
     "paths": {
-      "headless-spreadjs": ["src/index.ts"]
+      "headless-spreadjs": ["src/index.ts"],
+      "@hewliyang/headless-spreadjs/hooks": ["src/hooks.ts"],
+      "@hewliyang/headless-spreadjs": ["src/index.ts"]
     }
   },
-  "include": ["./*.ts", "../src/**/*.ts"]
+  "include": ["./*.ts", "./hooks/*.ts", "../src/**/*.ts"]
 }

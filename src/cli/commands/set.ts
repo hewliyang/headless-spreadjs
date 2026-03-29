@@ -102,7 +102,7 @@ export async function set(
 
   await withFile(
     filePath,
-    ({ file, workbook, GC }) => {
+    ({ file, workbook, GC, markMutated }) => {
       const sheet = target.sheet
         ? workbook.getSheetFromName(target.sheet)
         : workbook.getActiveSheet();
@@ -142,6 +142,14 @@ export async function set(
             }
           }
         }
+      });
+
+      markMutated({
+        sheet: target.sheet ?? sheet.name(),
+        startRow: target.start.row,
+        startCol: target.start.col,
+        endRow: target.end.row,
+        endCol: target.end.col,
       });
 
       ok({
