@@ -71,30 +71,24 @@ export async function set(
 
   const messages: string[] = [];
 
-  if (isSingleCellRef) {
-    target.end.row = target.start.row + dataRows - 1;
-    target.end.col = target.start.col + dataCols - 1;
+  target.end.row = target.start.row + dataRows - 1;
+  target.end.col = target.start.col + dataCols - 1;
 
+  if (!isSingleCellRef) {
+    const rowDiff = dataRows - originalRows;
+    const colDiff = dataCols - originalCols;
+    if (rowDiff !== 0 || colDiff !== 0) {
+      messages.push(
+        `Warning: data dimensions (${dataRows}R×${dataCols}C) differ from range (${originalRows}R×${originalCols}C). Adjusted range from ${formatRange(parsed)} to ${formatRange(target)}.`,
+      );
+    }
+  } else {
     const rowDiff = dataRows - originalRows;
     const colDiff = dataCols - originalCols;
     if (rowDiff !== 0 || colDiff !== 0) {
       messages.push(
         `Adjusted range from ${formatRange(parsed)} to ${formatRange(target)} (row diff: ${rowDiff}, col diff: ${colDiff})`,
       );
-    }
-  } else {
-    if (dataRows !== originalRows) {
-      throw new Error(
-        `Row count mismatch: range has ${originalRows} rows but got ${dataRows} rows.`,
-      );
-    }
-    for (let r = 0; r < dataRows; r++) {
-      throwIfAborted(signal);
-      if (cells[r].length !== originalCols) {
-        throw new Error(
-          `Column count mismatch in row ${r}: range has ${originalCols} cols but got ${cells[r].length} cols.`,
-        );
-      }
     }
   }
 
