@@ -1,0 +1,1 @@
+- `hsx` commands should be replacable & extensible just like tools in Pi.
