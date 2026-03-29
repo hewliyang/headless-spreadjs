@@ -18,7 +18,10 @@
  * and lint color violations in a postSave pass.
  */
 
-import type { HookAPI, HookContext } from "@hewliyang/headless-spreadjs/hooks";
+import type {
+  HookAPI,
+  HookContext,
+} from "@hewliyang/headless-spreadjs/hooks";
 
 const COLORS = {
   HARDCODE: "Blue",
@@ -134,68 +137,182 @@ function visitCells(ctx: HookContext, callback: CellVisitor) {
 }
 
 // ---------------------------------------------------------------------------
-// Hook entry point
+// Apply: color cells according to their type before each save
 // ---------------------------------------------------------------------------
-export default function (hooks: HookAPI) {
-  // Apply: color cells according to their type before each save
-  hooks.on("preSave", function applyFinancialColors(ctx: HookContext) {
-    let colored = 0;
-
-    visitCells(ctx, ({ ws, row, col, value, formula }) => {
-      const target = inferColor(value, formula);
-      if (!target) return;
-
-      const cell = ws.getCell(row, col);
-      const current = cell.foreColor();
-      if (current !== target) {
-        cell.foreColor(target);
-        colored++;
-      }
-    });
-
-    if (colored > 0) {
-      const scope =
-        ctx.mutatedRanges.length > 0
-          ? `${ctx.mutatedRanges.length} range(s)`
-          : "full workbook";
-      console.log(`Applied financial colors to ${colored} cell(s) [${scope}]`);
-    }
-  });
-
-  // Lint: report any remaining violations after save
-  hooks.on("postSave", function lintFinancialColors(ctx: HookContext) {
-    const violations: Array<{
-      ref: string;
-      value: unknown;
-      expected: string;
-      current: string | undefined;
-    }> = [];
-
-    visitCells(ctx, ({ sheetName, row, col, value, formula }) => {
-      const expected = inferColor(value, formula);
-      if (!expected) return;
-
-      const cell = ctx.workbook.getSheetFromName(sheetName).getCell(row, col);
-      const current: string | undefined = cell.foreColor();
-
-      if (current !== expected) {
-        const colLetter = String.fromCharCode(65 + (col % 26));
-        const ref = `${sheetName}!${colLetter}${row + 1}`;
-        violations.push({ ref, value, expected, current });
-      }
-    });
-
-    if (violations.length > 0) {
-      console.log(`Color violations (${violations.length}):`);
-      const limit = 10;
-      for (const v of violations.slice(0, limit)) {
-        console.log(
-          `  ${v.ref}: need ${colorName(v.expected)}, have ${colorName(v.current)}`,
-        );
-      }
-      if (violations.length > limit) {
-        console.log(`  ... +${violations.length - limit} more`);
-      }
-    }
-  });
+function colLetters(col: number): string {
+  let s = "";
+  let c = col;
+  while (c >= 0) {
+    s = String.fromCharCode(65 + (c % 26)) + s;
+    c = Math.floor(c / 26) - 1;
+  }
+  return s;
 }
+
+function cellRef(sheetName: string, row: number, col: number): string {
+  return `${sheetName}!${colLetters(col)}${row + 1}`;
+}
+
+interface CellChange {
+  sheetName: string;
+  row: number;
+  col: number;
+  color: FinancialColor;
+}
+
+function mergeChanges(changes: CellChange[]): string[] {
+  const groups = new Map<
+    string,
+    {
+      sheetName: string;
+      color: string;
+      cells: { row: number; col: number }[];
+    }
+  >();
+  for (const c of changes) {
+    const key = `${c.sheetName}\0${c.color}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { sheetName: c.sheetName, color: c.color, cells: [] };
+      groups.set(key, g);
+    }
+    g.cells.push({ row: c.row, col: c.col });
+  }
+
+  const parts: string[] = [];
+  for (const g of groups.values()) {
+    g.cells.sort((a, b) => a.col - b.col || a.row - b.row);
+
+    const byCols = new Map<number, number[]>();
+    for (const c of g.cells) {
+      let rows = byCols.get(c.col);
+      if (!rows) {
+        rows = [];
+        byCols.set(c.col, rows);
+      }
+      rows.push(c.row);
+    }
+
+    const colRuns: { col: number; startRow: number; endRow: number }[] = [];
+    for (const [col, rows] of byCols) {
+      rows.sort((a, b) => a - b);
+      let start = rows[0];
+      let end = rows[0];
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i] === end + 1) {
+          end = rows[i];
+        } else {
+          colRuns.push({ col, startRow: start, endRow: end });
+          start = rows[i];
+          end = rows[i];
+        }
+      }
+      colRuns.push({ col, startRow: start, endRow: end });
+    }
+
+    colRuns.sort((a, b) => a.startRow - b.startRow || a.col - b.col);
+    const merged: {
+      startRow: number;
+      endRow: number;
+      startCol: number;
+      endCol: number;
+    }[] = [];
+    for (const run of colRuns) {
+      const last = merged[merged.length - 1];
+      if (
+        last &&
+        last.startRow === run.startRow &&
+        last.endRow === run.endRow &&
+        last.endCol + 1 === run.col
+      ) {
+        last.endCol = run.col;
+      } else {
+        merged.push({
+          startRow: run.startRow,
+          endRow: run.endRow,
+          startCol: run.col,
+          endCol: run.col,
+        });
+      }
+    }
+
+    for (const r of merged) {
+      const tl = `${colLetters(r.startCol)}${r.startRow + 1}`;
+      const br = `${colLetters(r.endCol)}${r.endRow + 1}`;
+      const ref =
+        tl === br
+          ? `${g.sheetName}!${tl}`
+          : `${g.sheetName}!${tl}:${br}`;
+      parts.push(`${ref} → ${g.color}`);
+    }
+  }
+  return parts;
+}
+
+export default function (hsx: HookAPI) {
+
+hsx.on("preSave", function applyFinancialColors(ctx: HookContext) {
+  const changes: CellChange[] = [];
+
+  visitCells(ctx, ({ ws, sheetName, row, col, value, formula }) => {
+    const target = inferColor(value, formula);
+    if (!target) return;
+
+    const cell = ws.getCell(row, col);
+    const current = cell.foreColor();
+    if (current !== target) {
+      cell.foreColor(target);
+      changes.push({ sheetName, row, col, color: target });
+    }
+  });
+
+  if (changes.length > 0) {
+    const parts = mergeChanges(changes);
+    const limit = 20;
+    const shown = parts.slice(0, limit);
+    console.log(
+      `Applied financial colors: ${shown.join(", ")}${parts.length > limit ? ` ... +${parts.length - limit} more` : ""}`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Lint: report any remaining violations after save
+// ---------------------------------------------------------------------------
+hsx.on("postSave", function lintFinancialColors(ctx: HookContext) {
+  const violations: Array<{
+    ref: string;
+    value: unknown;
+    expected: string;
+    current: string | undefined;
+  }> = [];
+
+  visitCells(ctx, ({ sheetName, row, col, value, formula }) => {
+    const expected = inferColor(value, formula);
+    if (!expected) return;
+
+    const cell = ctx.workbook.getSheetFromName(sheetName).getCell(row, col);
+    const current: string | undefined = cell.foreColor();
+
+    if (current !== expected) {
+      const colLetter = String.fromCharCode(65 + (col % 26));
+      const ref = `${sheetName}!${colLetter}${row + 1}`;
+      violations.push({ ref, value, expected, current });
+    }
+  });
+
+  if (violations.length > 0) {
+    console.log(`Color violations (${violations.length}):`);
+    const limit = 10;
+    for (const v of violations.slice(0, limit)) {
+      console.log(
+        `  ${v.ref}: need ${colorName(v.expected)}, have ${colorName(v.current)}`,
+      );
+    }
+    if (violations.length > limit) {
+      console.log(`  ... +${violations.length - limit} more`);
+    }
+  }
+});
+
+} // end export default

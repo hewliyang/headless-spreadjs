@@ -66,7 +66,8 @@
 
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 import type { ExcelFile } from "./excel-file.js";
 import type { GCNamespace, SpreadWorkbook } from "./types.js";
@@ -258,9 +259,21 @@ function isHookFile(name: string): boolean {
   return false;
 }
 
+function getAliases(): Record<string, string> {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const distDir = __dirname;
+  return {
+    "@hewliyang/headless-spreadjs/hooks": join(distDir, "hooks.js"),
+    "@hewliyang/headless-spreadjs": join(distDir, "index.js"),
+  };
+}
+
 async function loadHookFile(filePath: string): Promise<void> {
   try {
-    const jiti = createJiti(import.meta.url, { moduleCache: false });
+    const jiti = createJiti(import.meta.url, {
+      moduleCache: false,
+      alias: getAliases(),
+    });
     const mod = await jiti.import(filePath, { default: true });
 
     // Hook files export a default function that receives a HookAPI instance
