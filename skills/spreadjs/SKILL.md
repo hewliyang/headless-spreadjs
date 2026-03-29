@@ -66,7 +66,12 @@ Each cell: `{"value": ...}`, `{"formula": "=..."}`, optional `"style": {...}`.
 - `foreColor`
 - `backColor`
 - `hAlign`: SpreadJS `HorizontalAlign` enum value
+- `vAlign`: SpreadJS `VerticalAlign` enum value (0=top, 1=center, 2=bottom)
 - `formatter`
+- `wordWrap`: `boolean`
+- `textIndent`: `number` (indent level)
+- `borderLeft`, `borderTop`, `borderRight`, `borderBottom`: `{ color?: string, style?: string }`
+  - `style` values: `"thin"`, `"medium"`, `"dashed"`, `"dotted"`, `"thick"`, `"double"`, `"hair"`, `"mediumDashed"`, `"dashDot"`, `"mediumDashDot"`, `"dashDotDot"`, `"mediumDashDotDot"`, `"slantedDashDot"`
 
 ## Read
 

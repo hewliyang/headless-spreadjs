@@ -11,6 +11,11 @@ export interface FontStyleObject {
   underline?: boolean;
 }
 
+export interface LineBorderObject {
+  color?: string;
+  style?: string;
+}
+
 export interface CellStyle {
   fontStyle?: FontStyleObject;
   fontSize?: string;
@@ -18,10 +23,34 @@ export interface CellStyle {
   foreColor?: string;
   backColor?: string;
   hAlign?: Spread.Sheets.HorizontalAlign;
+  vAlign?: number;
   formatter?: string;
+  wordWrap?: boolean;
+  textIndent?: number;
+  borderLeft?: LineBorderObject;
+  borderTop?: LineBorderObject;
+  borderRight?: LineBorderObject;
+  borderBottom?: LineBorderObject;
 }
 
 const H_ALIGN_GENERAL = 3;
+
+const LINE_STYLE_NAMES: Record<number, string> = {
+  0: "empty",
+  1: "thin",
+  2: "medium",
+  3: "dashed",
+  4: "dotted",
+  5: "thick",
+  6: "double",
+  7: "hair",
+  8: "mediumDashed",
+  9: "dashDot",
+  10: "mediumDashDot",
+  11: "dashDotDot",
+  12: "mediumDashDotDot",
+  13: "slantedDashDot",
+};
 
 // Default values to suppress from serialization
 const DEFAULT_FONT_SIZE = 14.6667; // SpreadJS default ~11pt
@@ -116,6 +145,36 @@ export function serializeStyle(style: SpreadStyle): CellStyle | null {
     }
   }
 
+  if (style.vAlign !== undefined && style.vAlign !== null && (style.vAlign as number) !== 0) {
+    result.vAlign = style.vAlign as number;
+    hasAny = true;
+  }
+
+  if (style.wordWrap === true) {
+    result.wordWrap = true;
+    hasAny = true;
+  }
+
+  if (style.textIndent !== undefined && style.textIndent > 0) {
+    result.textIndent = style.textIndent as number;
+    hasAny = true;
+  }
+
+  const borderProps = ["borderLeft", "borderTop", "borderRight", "borderBottom"] as const;
+  for (const prop of borderProps) {
+    const border = (style as unknown as Record<string, unknown>)[prop] as { color?: string; style?: unknown } | undefined;
+    if (border && typeof border === "object") {
+      const borderStyle = typeof border.style === "number"
+        ? LINE_STYLE_NAMES[border.style]
+        : typeof border.style === "string" ? border.style : undefined;
+      (result as Record<string, unknown>)[prop] = {
+        color: border.color,
+        ...(borderStyle && borderStyle !== "empty" ? { style: borderStyle } : {}),
+      };
+      hasAny = true;
+    }
+  }
+
   return hasAny ? result : null;
 }
 
@@ -174,6 +233,29 @@ export function applyStyles(
 
   if (styles.hAlign !== undefined) {
     style.hAlign = styles.hAlign;
+  }
+
+  if (styles.vAlign !== undefined) {
+    style.vAlign = styles.vAlign as Spread.Sheets.VerticalAlign;
+  }
+
+  if (styles.wordWrap !== undefined) {
+    style.wordWrap = styles.wordWrap;
+  }
+
+  if (styles.textIndent !== undefined) {
+    style.textIndent = styles.textIndent;
+  }
+
+  const borderProps = ["borderLeft", "borderTop", "borderRight", "borderBottom"] as const;
+  for (const prop of borderProps) {
+    const border = styles[prop];
+    if (border) {
+      (style as unknown as Record<string, unknown>)[prop] = new GC.Spread.Sheets.LineBorder(
+        border.color || "#000000",
+        GC.Spread.Sheets.LineStyle[border.style as keyof typeof GC.Spread.Sheets.LineStyle] ?? GC.Spread.Sheets.LineStyle.thin,
+      );
+    }
   }
 
   sheet.setStyle(row, col, style);
