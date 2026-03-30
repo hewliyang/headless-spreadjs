@@ -123,16 +123,18 @@ Hook files export a default function that receives a `HookAPI` instance:
 // .headless-spreadjs/hooks/no-gridlines.ts
 import type { HookAPI, HookContext } from "@hewliyang/headless-spreadjs/hooks";
 
+function hideGridlines(ctx: HookContext) {
+  for (let i = 0; i < ctx.workbook.getSheetCount(); i++) {
+    const sheet = ctx.workbook.getSheet(i);
+    sheet.options.gridline = {
+      showVerticalGridline: false,
+      showHorizontalGridline: false,
+    };
+  }
+}
+
 export default function (hsx: HookAPI) {
-  hsx.on("onOpen", function hideGridlines(ctx: HookContext) {
-    for (let i = 0; i < ctx.workbook.getSheetCount(); i++) {
-      const sheet = ctx.workbook.getSheet(i);
-      sheet.options.gridline = {
-        showVerticalGridline: false,
-        showHorizontalGridline: false,
-      };
-    }
-  });
+  hsx.on("onOpen", hideGridlines);
 }
 ```
 
@@ -141,11 +143,12 @@ export default function (hsx: HookAPI) {
 Commands like `set`, `clear`, and `copy` report exactly which cells they changed via `ctx.mutatedRanges`. Hooks can use this to only process affected cells instead of scanning the entire workbook:
 
 ```ts
-hsx.on("preSave", function colorInputs(ctx: HookContext) {
+function colorInputs(ctx: HookContext) {
   for (const range of ctx.mutatedRanges) {
     const ws = range.sheet
       ? ctx.workbook.getSheetFromName(range.sheet)
       : ctx.workbook.getActiveSheet();
+
     for (let r = range.startRow; r <= range.endRow; r++) {
       for (let c = range.startCol; c <= range.endCol; c++) {
         const formula = ws.getFormula(r, c);
@@ -155,7 +158,9 @@ hsx.on("preSave", function colorInputs(ctx: HookContext) {
       }
     }
   }
-});
+}
+
+hsx.on("preSave", colorInputs);
 ```
 
 For opaque commands like `eval`, `mutatedRanges` is empty — hooks can fall back to scanning all used cells.
