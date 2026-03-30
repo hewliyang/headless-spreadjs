@@ -13,6 +13,8 @@
  *   1. ./.headless-spreadjs/hooks/*.{ts,js,mjs} (project-local, takes precedence)
  *   2. ~/.headless-spreadjs/hooks/*.{ts,js,mjs} (global fallback)
  *
+ * Discovery can be disabled with HSX_NO_HOOKS=1.
+ *
  * Hook Points:
  *   - onOpen:      Called after a workbook is opened/created, before the command runs
  *   - preSave:     Called before each save() operation
@@ -314,6 +316,10 @@ async function loadHooksFromDir(dir: string): Promise<void> {
 export async function discoverHooks(): Promise<void> {
   if (_registry._discovered) return;
   _registry._discovered = true;
+
+  if (process.env.HSX_NO_HOOKS === "1") {
+    return;
+  }
 
   const localDir = resolve(".headless-spreadjs/hooks");
   if (existsSync(localDir)) {

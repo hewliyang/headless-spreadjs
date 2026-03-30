@@ -27,8 +27,8 @@
     "dev": "tsc --watch",
     "lint": "biome check",
     "fmt": "biome check --write",
-    "test": "vitest run --maxWorkers=1",
-    "test:watch": "vitest --maxWorkers=1",
+    "test": "HSX_NO_HOOKS=1 vitest run --maxWorkers=1",
+    "test:watch": "HSX_NO_HOOKS=1 vitest --maxWorkers=1",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
