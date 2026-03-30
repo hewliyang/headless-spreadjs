@@ -180,6 +180,7 @@ hsx --no-hooks set file.xlsx A1 '[[{"value":1}]]'
 See [`examples/hooks/`](./examples/hooks/) for ready-to-use hooks:
 
 - **`financial-colors.ts`** — auto-colors cells by type (Blue = hardcoded, Black = formula, Green = cross-sheet link) and lints violations after save
+- **`hardcode-lint.ts`** — flags suspicious numeric literals embedded inside formulas while ignoring common low-noise cases like `ROUND(..., 2)` and `INDEX(..., 1, 2)`
 - **`no-gridlines.ts`** — hides gridlines on all sheets when a workbook is opened
 ```
 
