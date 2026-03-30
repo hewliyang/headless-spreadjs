@@ -145,7 +145,11 @@ export function serializeStyle(style: SpreadStyle): CellStyle | null {
     }
   }
 
-  if (style.vAlign !== undefined && style.vAlign !== null && (style.vAlign as number) !== 0) {
+  if (
+    style.vAlign !== undefined &&
+    style.vAlign !== null &&
+    (style.vAlign as number) !== 0
+  ) {
     result.vAlign = style.vAlign as number;
     hasAny = true;
   }
@@ -160,16 +164,28 @@ export function serializeStyle(style: SpreadStyle): CellStyle | null {
     hasAny = true;
   }
 
-  const borderProps = ["borderLeft", "borderTop", "borderRight", "borderBottom"] as const;
+  const borderProps = [
+    "borderLeft",
+    "borderTop",
+    "borderRight",
+    "borderBottom",
+  ] as const;
   for (const prop of borderProps) {
-    const border = (style as unknown as Record<string, unknown>)[prop] as { color?: string; style?: unknown } | undefined;
+    const border = (style as unknown as Record<string, unknown>)[prop] as
+      | { color?: string; style?: unknown }
+      | undefined;
     if (border && typeof border === "object") {
-      const borderStyle = typeof border.style === "number"
-        ? LINE_STYLE_NAMES[border.style]
-        : typeof border.style === "string" ? border.style : undefined;
+      const borderStyle =
+        typeof border.style === "number"
+          ? LINE_STYLE_NAMES[border.style]
+          : typeof border.style === "string"
+            ? border.style
+            : undefined;
       (result as Record<string, unknown>)[prop] = {
         color: border.color,
-        ...(borderStyle && borderStyle !== "empty" ? { style: borderStyle } : {}),
+        ...(borderStyle && borderStyle !== "empty"
+          ? { style: borderStyle }
+          : {}),
       };
       hasAny = true;
     }
@@ -247,14 +263,22 @@ export function applyStyles(
     style.textIndent = styles.textIndent;
   }
 
-  const borderProps = ["borderLeft", "borderTop", "borderRight", "borderBottom"] as const;
+  const borderProps = [
+    "borderLeft",
+    "borderTop",
+    "borderRight",
+    "borderBottom",
+  ] as const;
   for (const prop of borderProps) {
     const border = styles[prop];
     if (border) {
-      (style as unknown as Record<string, unknown>)[prop] = new GC.Spread.Sheets.LineBorder(
-        border.color || "#000000",
-        GC.Spread.Sheets.LineStyle[border.style as keyof typeof GC.Spread.Sheets.LineStyle] ?? GC.Spread.Sheets.LineStyle.thin,
-      );
+      (style as unknown as Record<string, unknown>)[prop] =
+        new GC.Spread.Sheets.LineBorder(
+          border.color || "#000000",
+          GC.Spread.Sheets.LineStyle[
+            border.style as keyof typeof GC.Spread.Sheets.LineStyle
+          ] ?? GC.Spread.Sheets.LineStyle.thin,
+        );
     }
   }
 

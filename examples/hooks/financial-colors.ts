@@ -146,10 +146,6 @@ function colLetters(col: number): string {
   return s;
 }
 
-function cellRef(sheetName: string, row: number, col: number): string {
-  return `${sheetName}!${colLetters(col)}${row + 1}`;
-}
-
 interface CellChange {
   sheetName: string;
   row: number;
