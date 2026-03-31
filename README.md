@@ -120,7 +120,7 @@ In daemon mode, `onOpen` fires on **every command** (not just the first open), s
 Hook files export a default function that receives a `HookAPI` instance:
 
 ```ts
-// .headless-spreadjs/hooks/no-gridlines.ts
+// no-gridlines.ts
 import type { HookAPI, HookContext } from "@hewliyang/headless-spreadjs/hooks";
 
 function hideGridlines(ctx: HookContext) {
@@ -143,6 +143,9 @@ export default function (hsx: HookAPI) {
 Commands like `set`, `clear`, and `copy` report exactly which cells they changed via `ctx.mutatedRanges`. Hooks can use this to only process affected cells instead of scanning the entire workbook:
 
 ```ts
+// color-inputs.ts
+import type { HookAPI, HookContext } from "@hewliyang/headless-spreadjs/hooks";
+
 function colorInputs(ctx: HookContext) {
   for (const range of ctx.mutatedRanges) {
     const ws = range.sheet
@@ -160,7 +163,9 @@ function colorInputs(ctx: HookContext) {
   }
 }
 
-hsx.on("preSave", colorInputs);
+export default function (hsx: HookAPI) {
+  hsx.on("preSave", colorInputs);
+}
 ```
 
 For opaque commands like `eval`, `mutatedRanges` is empty — hooks can fall back to scanning all used cells.
@@ -170,8 +175,21 @@ For opaque commands like `eval`, `mutatedRanges` is empty — hooks can fall bac
 Hook `console.log` output is captured and prefixed with `[hook-type:fnName]`. By default output goes to stderr. Override per-hook:
 
 ```ts
-hsx.on("preSave", { output: "stdout" }, function myHook(ctx) { ... });
-hsx.on("preSave", { output: "none" }, function quietHook(ctx) { ... });
+// custom-output.ts
+import type { HookAPI, HookContext } from "@hewliyang/headless-spreadjs/hooks";
+
+function myHook(ctx: HookContext) {
+  console.log(`saving ${ctx.filePath}`);
+}
+
+function quietHook(ctx: HookContext) {
+  /* silent work */
+}
+
+export default function (hsx: HookAPI) {
+  hsx.on("preSave", { output: "stdout" }, myHook);
+  hsx.on("preSave", { output: "none" }, quietHook);
+}
 ```
 
 ### Disabling hooks
