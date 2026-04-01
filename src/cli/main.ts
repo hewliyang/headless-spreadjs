@@ -1,3 +1,4 @@
+import { exec } from "node:child_process";
 import { createRequire } from "node:module";
 import { discoverHooks, setHookWriters } from "../hooks.js";
 import { registerSignalTimeout } from "./abort.js";
@@ -11,6 +12,18 @@ import {
 } from "./output.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+function openUrl(url: string): void {
+  const cmd =
+    process.platform === "darwin"
+      ? `open "${url}"`
+      : process.platform === "win32"
+        ? `start "" "${url}"`
+        : `xdg-open "${url}"`;
+
+  const child = exec(cmd, () => {});
+  child.on("error", () => {});
+}
 
 function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
@@ -199,7 +212,67 @@ export async function main(): Promise<void> {
       }
     }
 
-    if (sub === "stop" || sub === "status" || sub === "flush") {
+    if (sub === "watch") {
+      const portIdx = filteredArgs.indexOf("--port");
+      const port = portIdx !== -1 ? filteredArgs[portIdx + 1] : "8080";
+      const hasOpen = filteredArgs.includes("--open");
+
+      // Ensure daemon is running
+      let result = await tryExistingDaemon(
+        ["daemon", "watch", "--port", port],
+        process.cwd(),
+        undefined,
+        timeoutMs,
+      );
+
+      let spawnError: unknown;
+      if (!result) {
+        try {
+          await spawnDaemon(timeoutMs);
+          result = await tryExistingDaemon(
+            ["daemon", "watch", "--port", port],
+            process.cwd(),
+            undefined,
+            timeoutMs,
+          );
+        } catch (err) {
+          spawnError = err;
+        }
+      }
+
+      if (result) {
+        if (result.exitCode === 0 && hasOpen) {
+          try {
+            const parsed = JSON.parse(result.stdout.trim()) as {
+              url?: string;
+            };
+            if (parsed.url) {
+              openUrl(parsed.url);
+            }
+          } catch {}
+        }
+        return exitWith(result.exitCode, {
+          stdout: result.stdout,
+          stderr: result.stderr,
+        });
+      }
+
+      const message =
+        spawnError instanceof Error
+          ? spawnError.message
+          : "Failed to start watch server";
+      return exitWith(1, {
+        stderr: `${JSON.stringify({ error: message })}\n`,
+      });
+    }
+
+    if (
+      sub === "stop" ||
+      sub === "status" ||
+      sub === "flush" ||
+      sub === "files" ||
+      sub === "unwatch"
+    ) {
       const result = await tryExistingDaemon(
         filteredArgs,
         process.cwd(),
@@ -219,13 +292,19 @@ export async function main(): Promise<void> {
         });
       }
 
+      if (sub === "files") {
+        return exitWith(0, {
+          stdout: `${JSON.stringify({ files: [] })}\n`,
+        });
+      }
+
       return exitWith(1, {
         stdout: `${JSON.stringify({ error: "No daemon running" })}\n`,
       });
     }
 
     return exitWith(1, {
-      stderr: "Usage: hsx daemon start|stop|status|flush\n",
+      stderr: "Usage: hsx daemon start|stop|status|files|flush|watch|unwatch\n",
     });
   }
 

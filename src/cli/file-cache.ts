@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ExcelFile } from "../index.js";
@@ -9,8 +10,14 @@ interface CacheEntry {
   dirty: boolean;
 }
 
+export interface FileCacheEvents {
+  opened: [absPath: string, file: ExcelFile];
+  changed: [absPath: string, file: ExcelFile];
+}
+
 export class FileCache {
   private cache = new Map<string, CacheEntry>();
+  readonly events = new EventEmitter<FileCacheEvents>();
 
   constructor(private readonly maxSize = 10) {}
 
@@ -66,13 +73,20 @@ export class FileCache {
       }
     }
 
+    const isNew = !this.cache.has(absPath);
     this.cache.set(absPath, { file, absPath, mtime, dirty: false });
+    if (isNew) {
+      this.events.emit("opened", absPath, file);
+    }
   }
 
   markDirty(filePath: string, cwd: string): void {
     const absPath = this.key(filePath, cwd);
     const entry = this.cache.get(absPath);
-    if (entry) entry.dirty = true;
+    if (entry) {
+      entry.dirty = true;
+      this.events.emit("changed", absPath, entry.file);
+    }
   }
 
   async updateMtime(filePath: string, cwd: string): Promise<void> {
@@ -80,7 +94,11 @@ export class FileCache {
     const entry = this.cache.get(absPath);
     if (entry) {
       entry.mtime = await this.getMtime(absPath);
+      const wasDirty = entry.dirty;
       entry.dirty = false;
+      if (wasDirty) {
+        this.events.emit("changed", absPath, entry.file);
+      }
     }
   }
 
@@ -120,5 +138,16 @@ export class FileCache {
 
   get size(): number {
     return this.cache.size;
+  }
+
+  files(): { absPath: string; dirty: boolean }[] {
+    return [...this.cache.values()].map((e) => ({
+      absPath: e.absPath,
+      dirty: e.dirty,
+    }));
+  }
+
+  getFile(absPath: string): ExcelFile | null {
+    return this.cache.get(absPath)?.file ?? null;
   }
 }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setHookWriters } from "../hooks.js";
 import { dispose as disposeRuntime, init } from "../index.js";
 import { registerSignalTimeout, throwIfAborted } from "./abort.js";
+import { DaemonProvider } from "./commands/watch.js";
 import { runWithDaemonRuntime } from "./context.js";
 import { dispatch } from "./dispatch.js";
 import { FileCache } from "./file-cache.js";
@@ -14,6 +15,7 @@ import {
   writeStderr,
   writeStdout,
 } from "./output.js";
+import { WatchServer } from "./watch-server.js";
 
 function envEnabled(value: string | undefined): boolean {
   if (!value) return false;
@@ -26,7 +28,7 @@ function envPositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const AUTO_FLUSH_INTERVAL_MS = envPositiveInt(
   process.env.HSX_AUTO_FLUSH_MS,
   5_000,
@@ -112,6 +114,8 @@ export async function startDaemon(): Promise<void> {
 
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let activeConnections = 0;
+  let watchServer: WatchServer | null = null;
+  let watchServerPort = 0;
   const server = createServer(handleConnection);
 
   function daemonLog(msg: string): void {
@@ -138,6 +142,10 @@ export async function startDaemon(): Promise<void> {
 
     if (idleTimer) clearTimeout(idleTimer);
     if (autoFlushTimer) clearInterval(autoFlushTimer);
+    if (watchServer) {
+      watchServer.stop();
+      watchServer = null;
+    }
 
     if (!options?.skipFlush) {
       try {
@@ -223,6 +231,65 @@ export async function startDaemon(): Promise<void> {
             flushed,
             dirtyFiles: fileCache.dirtyCount,
           })}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+
+      if (request.argv[0] === "daemon" && request.argv[1] === "files") {
+        return {
+          stdout: `${JSON.stringify({ files: fileCache.files() })}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+
+      if (request.argv[0] === "daemon" && request.argv[1] === "watch") {
+        const portIdx = request.argv.indexOf("--port");
+        const port =
+          portIdx !== -1
+            ? Number.parseInt(request.argv[portIdx + 1], 10) || 8080
+            : 8080;
+
+        if (watchServer) {
+          return {
+            stdout: `${JSON.stringify({ watching: true, url: `http://127.0.0.1:${watchServerPort}`, alreadyRunning: true })}\n`,
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+
+        try {
+          const provider = new DaemonProvider(fileCache);
+          watchServer = new WatchServer(provider);
+          watchServerPort = await watchServer.start(port);
+          daemonLog(`watch server started on port ${watchServerPort}`);
+          return {
+            stdout: `${JSON.stringify({ watching: true, url: `http://127.0.0.1:${watchServerPort}` })}\n`,
+            stderr: "",
+            exitCode: 0,
+          };
+        } catch (err) {
+          watchServer?.stop();
+          watchServer = null;
+          watchServerPort = 0;
+          return {
+            stdout: "",
+            stderr: `${JSON.stringify({ error: `Failed to start watch server: ${errorMessage(err)}` })}\n`,
+            exitCode: 1,
+          };
+        }
+      }
+
+      if (request.argv[0] === "daemon" && request.argv[1] === "unwatch") {
+        if (watchServer) {
+          watchServer.stop();
+          watchServer = null;
+          watchServerPort = 0;
+          daemonLog("watch server stopped");
+        }
+        return {
+          stdout: `${JSON.stringify({ stopped: true })}\n`,
           stderr: "",
           exitCode: 0,
         };

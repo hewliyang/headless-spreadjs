@@ -44,7 +44,10 @@ Commands:
   daemon start                               Start the background daemon
   daemon stop                                Stop the background daemon
   daemon status                              Show daemon status
+  daemon files                               List cached files in daemon
   daemon flush                               Flush buffered workbook writes
+  daemon watch [--port N] [--open]           Start live-preview server (auto-starts daemon)
+  daemon unwatch                             Stop the watch server (keeps daemon running)
 
 Options:
   --no-daemon                                Skip daemon, run directly
