@@ -508,6 +508,78 @@ describe("cli", () => {
     assert.equal(data.cells.B10.value, "Rev");
   });
 
+  it("set --copy-to expands formulas and styles", async () => {
+    const f = path.join(tmpDir, "copy-to.xlsx");
+    await hsx(["create", f]);
+    await hsx([
+      "set",
+      f,
+      "A1:D1",
+      '[[{"value":100},{"value":200},{"value":300},{"value":400}]]',
+    ]);
+    await hsx([
+      "set",
+      f,
+      "A2:D2",
+      '[[{"value":150},{"value":250},{"value":350},{"value":450}]]',
+    ]);
+    // Write one formula cell, expand across row
+    const { stdout: setOut } = await hsx([
+      "set",
+      f,
+      "A3",
+      '[[{"formula":"=SUM(A1:A2)","style":{"fontStyle":{"bold":true},"formatter":"#,##0"}}]]',
+      "--copy-to",
+      "A3:D3",
+    ]);
+    const setResult = JSON.parse(setOut);
+    assert.equal(setResult.copiedTo, "A3:D3");
+
+    // Verify formulas adjusted correctly
+    const { stdout: csvOut } = await hsx(["csv", f, "A3:D3", "--formulas"]);
+    const formulas = csvOut.trim().split(",");
+    assert.equal(formulas[0], "=SUM(A1:A2)");
+    assert.equal(formulas[1], "=SUM(B1:B2)");
+    assert.equal(formulas[2], "=SUM(C1:C2)");
+    assert.equal(formulas[3], "=SUM(D1:D2)");
+
+    // Verify computed values
+    const { stdout: valOut } = await hsx(["csv", f, "A3:D3"]);
+    const values = valOut.trim().split(",");
+    assert.deepEqual(values, ["250", "450", "650", "850"]);
+
+    // Verify style was copied (bold should be on all 4 cells)
+    const { stdout: getOut } = await hsx(["get", f, "A3:D3"]);
+    const cells = JSON.parse(getOut).cells;
+    for (const addr of ["A3", "B3", "C3", "D3"]) {
+      assert.equal(cells[addr].style?.fontStyle?.bold, true, `${addr} should be bold`);
+    }
+  });
+
+  it("set --copy-to tiles multi-row template", async () => {
+    const f = path.join(tmpDir, "copy-to-multi.xlsx");
+    await hsx(["create", f]);
+    await hsx([
+      "set",
+      f,
+      "A1:C2",
+      '[[{"value":10},{"value":20},{"value":30}],[{"value":40},{"value":50},{"value":60}]]',
+    ]);
+    // 2-row template (sum + avg), expand across 3 columns
+    await hsx([
+      "set",
+      f,
+      "A3:A4",
+      '[[{"formula":"=SUM(A1:A2)"}],[{"formula":"=AVERAGE(A1:A2)"}]]',
+      "--copy-to",
+      "A3:C4",
+    ]);
+    const { stdout } = await hsx(["csv", f, "A3:C4", "--formulas"]);
+    const lines = stdout.trim().split("\n");
+    assert.equal(lines[0], "=SUM(A1:A2),=SUM(B1:B2),=SUM(C1:C2)");
+    assert.equal(lines[1], "=AVERAGE(A1:A2),=AVERAGE(B1:B2),=AVERAGE(C1:C2)");
+  });
+
   it("diff reports changed values and formulas", async () => {
     const left = path.join(tmpDir, "diff-left.xlsx");
     const right = path.join(tmpDir, "diff-right.xlsx");

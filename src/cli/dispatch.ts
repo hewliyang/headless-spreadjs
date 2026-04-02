@@ -28,7 +28,7 @@ Commands:
   info <file>                                Show workbook metadata
   get <file> <ref>                           Read cells (Sheet1!A1:C10)
   csv <file> <ref> [--mode M] [--formulas]  Read range as CSV
-  set <file> <ref> [json]                    Write cells (JSON from arg or stdin)
+  set <file> <ref> [json] [--copy-to R]       Write cells, optionally expand pattern
   clear <file> <ref> [--type all|styles]     Clear a range (default: values only)
   search <file> <term> [--sheet S] [--regex] Search for values across sheets
   copy <file> <src> <dst>                    Copy range (formulas + styles)
@@ -264,8 +264,9 @@ async function dispatchCommand(
     case "set": {
       const file = requireArg(rest, 0, "set <file> <ref> [json]");
       const ref = requireArg(rest, 1, "set <file> <ref> [json]");
-      const json = rest[2];
-      await set(file, ref, json, { signal });
+      const copyToVal = flag(rest, "--copy-to");
+      const json = rest[2] && !rest[2].startsWith("--") ? rest[2] : undefined;
+      await set(file, ref, json, { signal, copyTo: copyToVal });
       break;
     }
 
