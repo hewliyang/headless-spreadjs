@@ -26,10 +26,11 @@ async function sendCommand(
   cwd: string,
   stdin?: string,
   timeoutMs = CLIENT_TIMEOUT_MS,
+  noHooks = false,
 ): Promise<DaemonCommandResult> {
   return new Promise((resolve, reject) => {
     const socket = connect({ path: socketPath }, () => {
-      const request = JSON.stringify({ argv, cwd, stdin, timeoutMs });
+      const request = JSON.stringify({ argv, cwd, stdin, timeoutMs, noHooks });
       socket.write(`${request}\n`);
     });
 
@@ -116,10 +117,11 @@ export async function tryExistingDaemon(
   cwd: string,
   stdin?: string,
   timeoutMs = CLIENT_TIMEOUT_MS,
+  noHooks = false,
 ): Promise<DaemonCommandResult | null> {
   const socketPath = getSocketPath();
   try {
-    return await sendCommand(socketPath, argv, cwd, stdin, timeoutMs);
+    return await sendCommand(socketPath, argv, cwd, stdin, timeoutMs, noHooks);
   } catch (err) {
     if (isDaemonUnavailableError(err)) {
       return null;
@@ -133,8 +135,15 @@ export async function tryDaemon(
   cwd: string,
   stdin?: string,
   timeoutMs = CLIENT_TIMEOUT_MS,
+  noHooks = false,
 ): Promise<DaemonCommandResult | null> {
-  const existing = await tryExistingDaemon(argv, cwd, stdin, timeoutMs);
+  const existing = await tryExistingDaemon(
+    argv,
+    cwd,
+    stdin,
+    timeoutMs,
+    noHooks,
+  );
   if (existing) {
     return existing;
   }
@@ -148,7 +157,7 @@ export async function tryDaemon(
   }
 
   try {
-    return await sendCommand(socketPath, argv, cwd, stdin, timeoutMs);
+    return await sendCommand(socketPath, argv, cwd, stdin, timeoutMs, noHooks);
   } catch (err) {
     if (isDaemonUnavailableError(err)) {
       return null;

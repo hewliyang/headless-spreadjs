@@ -1,6 +1,10 @@
 import { exec } from "node:child_process";
 import { createRequire } from "node:module";
-import { discoverHooks, setHookWriters } from "../hooks.js";
+import {
+  discoverHooks,
+  runWithHooksDisabled,
+  setHookWriters,
+} from "../hooks.js";
 import { registerSignalTimeout } from "./abort.js";
 import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
 import { dispatch, USAGE } from "./dispatch.js";
@@ -339,6 +343,7 @@ export async function main(): Promise<void> {
       process.cwd(),
       stdin,
       timeoutMs,
+      noHooks,
     );
     if (result) {
       return exitWith(result.exitCode, {
@@ -353,7 +358,9 @@ export async function main(): Promise<void> {
         await runWithTimeout(
           (signal) =>
             Promise.resolve(
-              runWithIo(io, () => dispatch(filteredArgs, { signal })),
+              runWithHooksDisabled(noHooks, () =>
+                runWithIo(io, () => dispatch(filteredArgs, { signal })),
+              ),
             ),
           timeoutMs,
         );
@@ -368,7 +375,12 @@ export async function main(): Promise<void> {
 
   try {
     await runWithTimeout(
-      (signal) => dispatch(filteredArgs, { signal }),
+      (signal) =>
+        Promise.resolve(
+          runWithHooksDisabled(noHooks, () =>
+            dispatch(filteredArgs, { signal }),
+          ),
+        ),
       timeoutMs,
     );
   } catch (err) {

@@ -66,6 +66,7 @@
  *   hsx.on("preSave", { output: "none" }, (ctx) => { ... });
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -175,6 +176,16 @@ const _registry: HookRegistry = {
   _discoveryErrors: [],
 };
 
+const EMPTY_REGISTRY: HookRegistry = {
+  preCommand: [],
+  postCommand: [],
+  onOpen: [],
+  preSave: [],
+  postSave: [],
+  _discovered: true,
+  _discoveryErrors: [],
+};
+
 // ============================================================================
 // HookAPI — passed to hook files
 // ============================================================================
@@ -226,6 +237,23 @@ let _writeStderr: WriteFn = (data) => process.stderr.write(data);
 export function setHookWriters(stdout: WriteFn, stderr: WriteFn): void {
   _writeStdout = stdout;
   _writeStderr = stderr;
+}
+
+const hookStateStore = new AsyncLocalStorage<{ disabled: boolean }>();
+
+function hooksDisabled(): boolean {
+  return hookStateStore.getStore()?.disabled === true;
+}
+
+function hookDiscoveryDisabled(): boolean {
+  return process.env.HSX_NO_HOOKS === "1" || hooksDisabled();
+}
+
+export function runWithHooksDisabled<T>(
+  disabled: boolean,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return hookStateStore.run({ disabled }, fn);
 }
 
 // ============================================================================
@@ -317,7 +345,7 @@ export async function discoverHooks(): Promise<void> {
   if (_registry._discovered) return;
   _registry._discovered = true;
 
-  if (process.env.HSX_NO_HOOKS === "1") {
+  if (hookDiscoveryDisabled()) {
     return;
   }
 
@@ -380,6 +408,9 @@ async function runHookWithPrefix(
 }
 
 export async function getRegistry(): Promise<HookRegistry> {
+  if (hooksDisabled()) {
+    return EMPTY_REGISTRY;
+  }
   await discoverHooks();
   return _registry;
 }

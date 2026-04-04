@@ -5,8 +5,10 @@ import { connect } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, it } from "vitest";
+import { DaemonProvider } from "../src/cli/commands/watch.js";
+import { FileCache } from "../src/cli/file-cache.js";
 
-const DAEMON_ENTRY = path.resolve("src/cli/daemon-entry.ts");
+const DAEMON_ENTRY = path.resolve("dist/cli/daemon-entry.js");
 
 type DaemonResponse = { stdout: string; stderr: string; exitCode: number };
 
@@ -107,7 +109,7 @@ beforeAll(async () => {
 	tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hsx-daemon-test-"));
 	socketPath = path.join(tmpDir, "test-daemon.sock");
 
-	daemonProc = spawn("tsx", [DAEMON_ENTRY], {
+	daemonProc = spawn("node", [DAEMON_ENTRY], {
 		stdio: ["ignore", "ignore", "pipe", "ipc"],
 		env: { ...process.env, HSX_SOCKET_PATH: socketPath },
 	});
@@ -149,6 +151,20 @@ afterAll(async () => {
 });
 
 describe("daemon", () => {
+	it("watch provider removes file cache listeners on stop", () => {
+		const fileCache = new FileCache(2);
+		assert.equal(fileCache.events.listenerCount("opened"), 0);
+		assert.equal(fileCache.events.listenerCount("changed"), 0);
+
+		const provider = new DaemonProvider(fileCache);
+		assert.equal(fileCache.events.listenerCount("opened"), 1);
+		assert.equal(fileCache.events.listenerCount("changed"), 1);
+
+		provider.stop();
+		assert.equal(fileCache.events.listenerCount("opened"), 0);
+		assert.equal(fileCache.events.listenerCount("changed"), 0);
+	});
+
 	it("status", async () => {
 		const res = await sendCommand(socketPath, ["daemon", "status"], tmpDir);
 		assert.equal(res.exitCode, 0);

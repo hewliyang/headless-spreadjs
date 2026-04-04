@@ -5,7 +5,7 @@ import { connect, createServer, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { setHookWriters } from "../hooks.js";
+import { runWithHooksDisabled, setHookWriters } from "../hooks.js";
 import { dispose as disposeRuntime, init } from "../index.js";
 import { registerSignalTimeout, throwIfAborted } from "./abort.js";
 import { DaemonProvider } from "./commands/watch.js";
@@ -85,6 +85,7 @@ type DaemonRequest = {
   cwd: string;
   stdin?: string;
   timeoutMs?: number;
+  noHooks?: boolean;
 };
 type DaemonResponse = { stdout: string; stderr: string; exitCode: number };
 
@@ -310,155 +311,157 @@ export async function startDaemon(): Promise<void> {
     request: DaemonRequest,
     signal: AbortSignal,
   ): Promise<DaemonResponse & { shutdown?: boolean }> {
-    try {
-      throwIfAborted(signal);
+    return runWithHooksDisabled(Boolean(request.noHooks), async () => {
+      try {
+        throwIfAborted(signal);
 
-      if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
-        const flushed = await fileCache.flushDirty();
-        if (flushed > 0) {
-          daemonLog(`flushed ${flushed} dirty file(s) before stop`);
-        }
-        return {
-          stdout: `${JSON.stringify({ stopped: true })}\n`,
-          stderr: "",
-          exitCode: 0,
-          shutdown: true,
-        };
-      }
-
-      if (request.argv[0] === "daemon" && request.argv[1] === "flush") {
-        const flushed = await fileCache.flushDirty();
-        if (flushed > 0) {
-          daemonLog(`flushed ${flushed} dirty file(s) via explicit request`);
-        }
-        return {
-          stdout: `${JSON.stringify({
-            flushed,
-            dirtyFiles: fileCache.dirtyCount,
-          })}\n`,
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-
-      if (request.argv[0] === "daemon" && request.argv[1] === "files") {
-        return {
-          stdout: `${JSON.stringify({ files: fileCache.files() })}\n`,
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-
-      if (request.argv[0] === "daemon" && request.argv[1] === "watch") {
-        const portIdx = request.argv.indexOf("--port");
-        const port =
-          portIdx !== -1
-            ? Number.parseInt(request.argv[portIdx + 1], 10) || 8080
-            : 8080;
-
-        if (watchServer) {
+        if (request.argv[0] === "daemon" && request.argv[1] === "stop") {
+          const flushed = await fileCache.flushDirty();
+          if (flushed > 0) {
+            daemonLog(`flushed ${flushed} dirty file(s) before stop`);
+          }
           return {
-            stdout: `${JSON.stringify({ watching: true, url: `http://127.0.0.1:${watchServerPort}`, alreadyRunning: true })}\n`,
+            stdout: `${JSON.stringify({ stopped: true })}\n`,
+            stderr: "",
+            exitCode: 0,
+            shutdown: true,
+          };
+        }
+
+        if (request.argv[0] === "daemon" && request.argv[1] === "flush") {
+          const flushed = await fileCache.flushDirty();
+          if (flushed > 0) {
+            daemonLog(`flushed ${flushed} dirty file(s) via explicit request`);
+          }
+          return {
+            stdout: `${JSON.stringify({
+              flushed,
+              dirtyFiles: fileCache.dirtyCount,
+            })}\n`,
             stderr: "",
             exitCode: 0,
           };
         }
+
+        if (request.argv[0] === "daemon" && request.argv[1] === "files") {
+          return {
+            stdout: `${JSON.stringify({ files: fileCache.files() })}\n`,
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+
+        if (request.argv[0] === "daemon" && request.argv[1] === "watch") {
+          const portIdx = request.argv.indexOf("--port");
+          const port =
+            portIdx !== -1
+              ? Number.parseInt(request.argv[portIdx + 1], 10) || 8080
+              : 8080;
+
+          if (watchServer) {
+            return {
+              stdout: `${JSON.stringify({ watching: true, url: `http://127.0.0.1:${watchServerPort}`, alreadyRunning: true })}\n`,
+              stderr: "",
+              exitCode: 0,
+            };
+          }
+
+          try {
+            const provider = new DaemonProvider(fileCache);
+            watchServer = new WatchServer(provider);
+            watchServerPort = await watchServer.start(port);
+            daemonLog(`watch server started on port ${watchServerPort}`);
+            return {
+              stdout: `${JSON.stringify({ watching: true, url: `http://127.0.0.1:${watchServerPort}` })}\n`,
+              stderr: "",
+              exitCode: 0,
+            };
+          } catch (err) {
+            watchServer?.stop();
+            watchServer = null;
+            watchServerPort = 0;
+            return {
+              stdout: "",
+              stderr: `${JSON.stringify({ error: `Failed to start watch server: ${errorMessage(err)}` })}\n`,
+              exitCode: 1,
+            };
+          }
+        }
+
+        if (request.argv[0] === "daemon" && request.argv[1] === "unwatch") {
+          if (watchServer) {
+            watchServer.stop();
+            watchServer = null;
+            watchServerPort = 0;
+            daemonLog("watch server stopped");
+          }
+          return {
+            stdout: `${JSON.stringify({ stopped: true })}\n`,
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+
+        if (request.argv[0] === "daemon" && request.argv[1] === "status") {
+          const mem = process.memoryUsage();
+          return {
+            stdout: `${JSON.stringify({
+              pid: process.pid,
+              cachedFiles: fileCache.size,
+              dirtyFiles: fileCache.dirtyCount,
+              maxCacheSize: fileCache.maxCacheSize,
+              writeThrough,
+              uptime: Math.floor(process.uptime()),
+              heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+              rssMB: Math.round(mem.rss / 1024 / 1024),
+              logFile: getLogPath(),
+            })}\n`,
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+
+        if (request.argv[0] === "eval") {
+          if (fileCache.dirtyCount > 0) {
+            await fileCache.flushDirty();
+          }
+          const response = await runIsolatedCli(request, signal);
+          const evalFile = request.argv[1];
+          if (evalFile) {
+            fileCache.invalidate(evalFile, request.cwd);
+          }
+          return response;
+        }
+
+        const runtime = {
+          GC,
+          ExcelFile,
+          fileCache,
+          cwd: request.cwd,
+          writeThrough,
+        };
+        const io = createIoContext(request.stdin);
 
         try {
-          const provider = new DaemonProvider(fileCache);
-          watchServer = new WatchServer(provider);
-          watchServerPort = await watchServer.start(port);
-          daemonLog(`watch server started on port ${watchServerPort}`);
-          return {
-            stdout: `${JSON.stringify({ watching: true, url: `http://127.0.0.1:${watchServerPort}` })}\n`,
-            stderr: "",
-            exitCode: 0,
-          };
+          await runWithDaemonRuntime(runtime, () =>
+            runWithIo(io, () => dispatch(request.argv, { signal })),
+          );
+          return { stdout: io.stdout, stderr: io.stderr, exitCode: 0 };
         } catch (err) {
-          watchServer?.stop();
-          watchServer = null;
-          watchServerPort = 0;
           return {
-            stdout: "",
-            stderr: `${JSON.stringify({ error: `Failed to start watch server: ${errorMessage(err)}` })}\n`,
+            stdout: io.stdout,
+            stderr: `${io.stderr}${JSON.stringify({ error: errorMessage(err) })}\n`,
             exitCode: 1,
           };
         }
-      }
-
-      if (request.argv[0] === "daemon" && request.argv[1] === "unwatch") {
-        if (watchServer) {
-          watchServer.stop();
-          watchServer = null;
-          watchServerPort = 0;
-          daemonLog("watch server stopped");
-        }
-        return {
-          stdout: `${JSON.stringify({ stopped: true })}\n`,
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-
-      if (request.argv[0] === "daemon" && request.argv[1] === "status") {
-        const mem = process.memoryUsage();
-        return {
-          stdout: `${JSON.stringify({
-            pid: process.pid,
-            cachedFiles: fileCache.size,
-            dirtyFiles: fileCache.dirtyCount,
-            maxCacheSize: fileCache.maxCacheSize,
-            writeThrough,
-            uptime: Math.floor(process.uptime()),
-            heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
-            rssMB: Math.round(mem.rss / 1024 / 1024),
-            logFile: getLogPath(),
-          })}\n`,
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-
-      if (request.argv[0] === "eval") {
-        if (fileCache.dirtyCount > 0) {
-          await fileCache.flushDirty();
-        }
-        const response = await runIsolatedCli(request, signal);
-        const evalFile = request.argv[1];
-        if (evalFile) {
-          fileCache.invalidate(evalFile, request.cwd);
-        }
-        return response;
-      }
-
-      const runtime = {
-        GC,
-        ExcelFile,
-        fileCache,
-        cwd: request.cwd,
-        writeThrough,
-      };
-      const io = createIoContext(request.stdin);
-
-      try {
-        await runWithDaemonRuntime(runtime, () =>
-          runWithIo(io, () => dispatch(request.argv, { signal })),
-        );
-        return { stdout: io.stdout, stderr: io.stderr, exitCode: 0 };
       } catch (err) {
         return {
-          stdout: io.stdout,
-          stderr: `${io.stderr}${JSON.stringify({ error: errorMessage(err) })}\n`,
+          stdout: "",
+          stderr: `${JSON.stringify({ error: errorMessage(err) })}\n`,
           exitCode: 1,
         };
       }
-    } catch (err) {
-      return {
-        stdout: "",
-        stderr: `${JSON.stringify({ error: errorMessage(err) })}\n`,
-        exitCode: 1,
-      };
-    }
+    });
   }
 
   function handleConnection(socket: Socket): void {

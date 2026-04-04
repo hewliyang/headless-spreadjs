@@ -121,19 +121,20 @@ class DiskProvider implements WatchFileProvider {
 
 export class DaemonProvider implements WatchFileProvider {
   private listeners = new Set<WatchEventListener>();
+  private readonly handleOpened = (absPath: string) => {
+    for (const l of this.listeners) {
+      l({ type: "opened", absPath });
+    }
+  };
+  private readonly handleChanged = (absPath: string) => {
+    for (const l of this.listeners) {
+      l({ type: "changed", absPath });
+    }
+  };
 
   constructor(private fileCache: FileCache) {
-    fileCache.events.on("opened", (absPath) => {
-      for (const l of this.listeners) {
-        l({ type: "opened", absPath });
-      }
-    });
-
-    fileCache.events.on("changed", (absPath) => {
-      for (const l of this.listeners) {
-        l({ type: "changed", absPath });
-      }
-    });
+    fileCache.events.on("opened", this.handleOpened);
+    fileCache.events.on("changed", this.handleChanged);
   }
 
   listFiles(): string[] {
@@ -149,6 +150,12 @@ export class DaemonProvider implements WatchFileProvider {
   subscribe(listener: WatchEventListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  stop(): void {
+    this.listeners.clear();
+    this.fileCache.events.off("opened", this.handleOpened);
+    this.fileCache.events.off("changed", this.handleChanged);
   }
 }
 
@@ -267,7 +274,6 @@ export async function watch(
 
   return new Promise<void>((res) => {
     const cleanup = () => {
-      provider.stop();
       server.stop();
       res();
     };

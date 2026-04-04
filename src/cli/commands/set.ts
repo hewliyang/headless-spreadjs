@@ -157,18 +157,112 @@ export async function set(
           ensureSheetSize(dstSheet, copyDst.end.row + 1, copyDst.end.col + 1);
 
           const CopyToOptions = GC.Spread.Sheets.CopyToOptions;
+          const SheetArea = GC.Spread.Sheets.SheetArea;
+          const StorageType = GC.Spread.Sheets.StorageType;
+          const needsCrossSheetCopy = sheet !== dstSheet;
+          const helperIndex = workbook.getSheetCount();
+          const helperSheet = needsCrossSheetCopy
+            ? new GC.Spread.Sheets.Worksheet(
+                `__hsx_copy_to_${Date.now().toString(36)}`,
+              )
+            : null;
 
-          for (let r = 0; r < dstRows; r++) {
-            throwIfAborted(signal);
-            for (let c = 0; c < dstCols; c++) {
-              const sr = target.start.row + (r % srcRows);
-              const sc = target.start.col + (c % srcCols);
-              const dr = copyDst.start.row + r;
-              const dc = copyDst.start.col + c;
+          if (helperSheet) {
+            workbook.addSheet(helperIndex, helperSheet);
+            ensureSheetSize(
+              helperSheet,
+              Math.max(target.end.row, copyDst.end.row) + 1,
+              Math.max(target.end.col, copyDst.end.col) + 1,
+            );
+          }
 
-              if (dr === sr && dc === sc && sheet === dstSheet) continue;
+          try {
+            for (let r = 0; r < dstRows; r++) {
+              throwIfAborted(signal);
+              for (let c = 0; c < dstCols; c++) {
+                const sr = target.start.row + (r % srcRows);
+                const sc = target.start.col + (c % srcCols);
+                const dr = copyDst.start.row + r;
+                const dc = copyDst.start.col + c;
 
-              sheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+                if (dr === sr && dc === sc && sheet === dstSheet) continue;
+
+                if (!helperSheet) {
+                  sheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+                  continue;
+                }
+
+                helperSheet.clear(
+                  sr,
+                  sc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.data,
+                );
+                helperSheet.clear(
+                  sr,
+                  sc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.style,
+                );
+                helperSheet.clear(
+                  dr,
+                  dc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.data,
+                );
+                helperSheet.clear(
+                  dr,
+                  dc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.style,
+                );
+
+                const formula = sheet.getFormula(sr, sc);
+                if (formula) {
+                  helperSheet.setFormula(sr, sc, formula);
+                } else {
+                  const value = sheet.getValue(sr, sc);
+                  if (value !== null && value !== undefined) {
+                    helperSheet.setValue(sr, sc, value);
+                  }
+                }
+
+                const style = sheet.getStyle(sr, sc);
+                if (style) {
+                  helperSheet.setStyle(sr, sc, style);
+                }
+
+                if (dr !== sr || dc !== sc) {
+                  helperSheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+                }
+
+                const adjustedFormula = helperSheet.getFormula(dr, dc);
+                if (adjustedFormula) {
+                  dstSheet.setFormula(dr, dc, adjustedFormula);
+                } else {
+                  const adjustedValue = helperSheet.getValue(dr, dc);
+                  if (adjustedValue !== null && adjustedValue !== undefined) {
+                    dstSheet.setValue(dr, dc, adjustedValue);
+                  }
+                }
+
+                const adjustedStyle = helperSheet.getStyle(dr, dc);
+                if (adjustedStyle) {
+                  dstSheet.setStyle(dr, dc, adjustedStyle);
+                }
+              }
+            }
+          } finally {
+            if (helperSheet) {
+              workbook.removeSheet(helperIndex);
             }
           }
 

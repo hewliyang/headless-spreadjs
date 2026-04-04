@@ -20,6 +20,9 @@ export interface WatchFileProvider {
 
   /** Subscribe to file events. Returns unsubscribe function. */
   subscribe(listener: WatchEventListener): () => void;
+
+  /** Release any provider-owned listeners/resources. */
+  stop(): void;
 }
 
 export type WatchEvent =
@@ -768,6 +771,7 @@ export class WatchServer {
       } catch {}
     }
     this.sseClients.clear();
+    this.provider.stop();
     this.server.close();
   }
 

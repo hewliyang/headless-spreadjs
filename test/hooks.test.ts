@@ -1,9 +1,15 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { FileCache } from "../src/cli/file-cache.js";
+import { runWithDaemonRuntime, withFile, withNewFile } from "../src/cli/context.js";
 import { ExcelFile, init } from "../src/index.js";
 import {
   clearHooks,
   createHookAPI,
   getDiscoveryErrors,
+  runWithHooksDisabled,
   setCurrentCommand,
 } from "../src/hooks.js";
 import type { HookContext, PostCommandContext, PreCommandContext } from "../src/hooks.js";
@@ -28,6 +34,15 @@ function makeCtx(overrides?: Partial<HookContext>): HookContext {
     mutatedRanges: [],
     ...overrides,
   };
+}
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hsx-hooks-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }
 
 describe("hook context has command + workbook info", () => {
@@ -209,6 +224,22 @@ describe("hook ordering and errors", () => {
     await runPreSaveHooks(makeCtx());
     expect(calls).toEqual(["async-done"]);
   });
+
+  it("runWithHooksDisabled suppresses registered hooks", async () => {
+    const { runPreCommandHooks } = await import("../src/hooks.js");
+    const hsx = createHookAPI();
+
+    const calls: string[] = [];
+    hsx.on("preCommand", () => {
+      calls.push("ran");
+    });
+
+    await runWithHooksDisabled(true, () =>
+      runPreCommandHooks({ command: "info", args: ["model.xlsx"] }),
+    );
+
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("output capture", () => {
@@ -320,6 +351,80 @@ describe("hooks.on registers hooks with shared state", () => {
     await runPreSaveHooks(ctx);
     await runPostSaveHooks(ctx);
     expect(saveCount).toBe(2);
+  });
+});
+
+describe("hook lifecycle through file context helpers", () => {
+  it("withNewFile runs workbook hooks for create flow", async () => {
+    const hsx = createHookAPI();
+    const calls: string[] = [];
+
+    hsx.on("onOpen", (ctx) => {
+      calls.push(`open:${ctx.command}`);
+      ctx.workbook.getActiveSheet().setValue(0, 0, "DEFAULT");
+    });
+    hsx.on("preSave", (ctx) => {
+      calls.push(`pre:${ctx.command}`);
+    });
+    hsx.on("postSave", (ctx) => {
+      calls.push(`post:${ctx.command}`);
+    });
+
+    await withTempDir(async (tmpDir) => {
+      const filePath = path.join(tmpDir, "created.xlsx");
+      setCurrentCommand({ command: "create", args: [filePath] });
+      try {
+        await withNewFile(filePath);
+      } finally {
+        setCurrentCommand(null);
+      }
+
+      await init();
+      const reopened = await ExcelFile.open(filePath);
+      expect(reopened.workbook.getActiveSheet().getValue(0, 0)).toBe(
+        "DEFAULT",
+      );
+    });
+
+    expect(calls).toEqual(["open:create", "pre:create", "post:create"]);
+  });
+
+  it("invalidates daemon cache when onOpen hooks fail before save", async () => {
+    await withTempDir(async (tmpDir) => {
+      const filePath = path.join(tmpDir, "cache.xlsx");
+      await withNewFile(filePath);
+
+      clearHooks();
+      const hsx = createHookAPI();
+      hsx.on("onOpen", (ctx) => {
+        ctx.workbook.getActiveSheet().setValue(0, 0, "mutated");
+      });
+      hsx.on("onOpen", () => {
+        throw new Error("hook boom");
+      });
+
+      const { GC } = await init();
+      const fileCache = new FileCache(5);
+
+      await expect(
+        runWithDaemonRuntime(
+          {
+            GC,
+            ExcelFile,
+            fileCache,
+            cwd: tmpDir,
+            writeThrough: false,
+          },
+          () => withFile(filePath, () => undefined),
+        ),
+      ).rejects.toThrow("hook boom");
+
+      const cached = await fileCache.get(filePath, tmpDir);
+      expect(cached).toBeNull();
+
+      const reopened = await ExcelFile.open(filePath);
+      expect(reopened.workbook.getActiveSheet().getValue(0, 0)).toBeNull();
+    });
   });
 });
 

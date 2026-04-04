@@ -7,8 +7,8 @@ import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, it } from "vitest";
 
 const exec = promisify(execFile);
-const CLI = path.resolve("src/cli/index.ts");
-const DAEMON_ENTRY = path.resolve("src/cli/daemon-entry.ts");
+const CLI = path.resolve("dist/cli/index.js");
+const DAEMON_ENTRY = path.resolve("dist/cli/daemon-entry.js");
 
 let tmpDir: string;
 let testFile: string;
@@ -22,7 +22,7 @@ beforeAll(async () => {
   socketPath = path.join(tmpDir, "cli-test-daemon.sock");
   testEnv = { ...process.env, HSX_SOCKET_PATH: socketPath, HSX_AUTO_FLUSH_MS: "600000" };
 
-  daemonProc = spawn("tsx", [DAEMON_ENTRY], {
+  daemonProc = spawn("node", [DAEMON_ENTRY], {
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     env: testEnv,
   });
@@ -54,7 +54,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    await exec("tsx", [CLI, "daemon", "stop"], {
+    await exec("node", [CLI, "daemon", "stop"], {
       env: testEnv,
       timeout: 10_000,
     });
@@ -69,12 +69,14 @@ afterAll(async () => {
 function hsx(
   args: string[],
   input?: string,
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string }> {
   if (input !== undefined) {
     return new Promise((resolve, reject) => {
-      const proc = spawn("tsx", [CLI, ...args], {
+      const proc = spawn("node", [CLI, ...args], {
         stdio: ["pipe", "pipe", "pipe"],
         env: testEnv,
+        cwd,
       });
       let stdout = "";
       let stderr = "";
@@ -88,18 +90,20 @@ function hsx(
       proc.stdin.end(input);
     });
   }
-  return exec("tsx", [CLI, ...args], { timeout: 30_000, env: testEnv });
+  return exec("node", [CLI, ...args], { timeout: 30_000, env: testEnv, cwd });
 }
 
 function hsxRaw(
   args: string[],
   env: NodeJS.ProcessEnv,
   input?: string,
+  cwd?: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const proc = spawn("tsx", [CLI, ...args], {
+    const proc = spawn("node", [CLI, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      cwd,
     });
     let stdout = "";
     let stderr = "";
@@ -606,6 +610,50 @@ describe("cli", () => {
     assert.equal(lines[1], "=AVERAGE(A1:A2),=AVERAGE(B1:B2),=AVERAGE(C1:C2)");
   });
 
+  it("set --copy-to writes to a different destination sheet", async () => {
+    const f = path.join(tmpDir, "copy-to-other-sheet.xlsx");
+    await hsx(["create", f]);
+    await hsx(["sheet", f, "create", "Summary"]);
+    await hsx([
+      "set",
+      f,
+      "A1:B2",
+      '[[{"value":10},{"value":20}],[{"value":30},{"formula":"=A1+B1"}]]',
+    ]);
+    await hsx([
+      "set",
+      f,
+      "Summary!B1:C2",
+      '[[{"value":5},{"value":6}],[{"value":7},{"value":8}]]',
+    ]);
+
+    const { stdout: setOut } = await hsx([
+      "set",
+      f,
+      "A3",
+      '[[{"formula":"=SUM(A1:A2)","style":{"fontStyle":{"bold":true}}}]]',
+      "--copy-to",
+      "Summary!B3:C3",
+    ]);
+    assert.equal(JSON.parse(setOut).copiedTo, "Summary!B3:C3");
+
+    const { stdout: formulaOut } = await hsx([
+      "csv",
+      f,
+      "Summary!B3:C3",
+      "--formulas",
+    ]);
+    assert.equal(formulaOut.trim(), "=SUM(B1:B2),=SUM(C1:C2)");
+
+    const { stdout: valueOut } = await hsx(["csv", f, "Summary!B3:C3"]);
+    assert.equal(valueOut.trim(), "12,14");
+
+    const { stdout: getOut } = await hsx(["get", f, "Summary!B3:C3"]);
+    const cells = JSON.parse(getOut).cells;
+    assert.equal(cells.B3.style?.fontStyle?.bold, true);
+    assert.equal(cells.C3.style?.fontStyle?.bold, true);
+  });
+
   it("diff reports changed values and formulas", async () => {
     const left = path.join(tmpDir, "diff-left.xlsx");
     const right = path.join(tmpDir, "diff-right.xlsx");
@@ -975,7 +1023,7 @@ describe("cli", () => {
     let wtDaemon: ChildProcess | null = null;
 
     try {
-      wtDaemon = spawn("tsx", [DAEMON_ENTRY], {
+      wtDaemon = spawn("node", [DAEMON_ENTRY], {
         stdio: ["ignore", "ignore", "pipe", "ipc"],
         env: wtEnv,
       });
@@ -1006,24 +1054,24 @@ describe("cli", () => {
         });
       });
 
-      await exec("tsx", [CLI, "create", wtFile], {
+      await exec("node", [CLI, "create", wtFile], {
         env: wtEnv,
         timeout: 30_000,
       });
-      await exec("tsx", [CLI, "set", wtFile, "A1", '[[{"value":"sync"}]]'], {
+      await exec("node", [CLI, "set", wtFile, "A1", '[[{"value":"sync"}]]'], {
         env: wtEnv,
         timeout: 30_000,
       });
 
       const { stdout } = await exec(
-        "tsx",
+        "node",
         [CLI, "--no-daemon", "get", wtFile, "A1", "--no-styles"],
         { env: wtEnv, timeout: 30_000 },
       );
       assert.equal(JSON.parse(stdout).cells.A1.value, "sync");
 
       const { stdout: statusOut } = await exec(
-        "tsx",
+        "node",
         [CLI, "daemon", "status"],
         {
           env: wtEnv,
@@ -1037,6 +1085,112 @@ describe("cli", () => {
         wtDaemon?.kill();
       } catch {}
       await fs.rm(wtDir, { recursive: true, force: true });
+    }
+  });
+
+  it("direct --no-hooks skips local hooks", async () => {
+    const hookDir = await fs.mkdtemp(path.join(tmpDir, "no-hooks-direct-"));
+    const hookEnv = { ...testEnv };
+    delete hookEnv.HSX_NO_HOOKS;
+
+    try {
+      await fs.mkdir(path.join(hookDir, ".headless-spreadjs", "hooks"), {
+        recursive: true,
+      });
+      await fs.writeFile(
+        path.join(hookDir, ".headless-spreadjs", "hooks", "stdout-hook.ts"),
+        [
+          'import type { HookAPI } from "@hewliyang/headless-spreadjs/hooks";',
+          "",
+          "export default function (hsx: HookAPI) {",
+          '  hsx.on("preCommand", { output: "stdout" }, function announce() {',
+          '    console.log("HOOKED");',
+          "  });",
+          "}",
+          "",
+        ].join("\n"),
+      );
+
+      const file = path.join(hookDir, "direct.xlsx");
+
+      const enabled = await hsxRaw(
+        ["--no-daemon", "create", file],
+        hookEnv,
+        undefined,
+        hookDir,
+      );
+      assert.equal(enabled.code, 0, enabled.stderr);
+      assert.match(enabled.stdout, /HOOKED/);
+
+      const disabled = await hsxRaw(
+        ["--no-daemon", "--no-hooks", "info", file],
+        hookEnv,
+        undefined,
+        hookDir,
+      );
+      assert.equal(disabled.code, 0, disabled.stderr);
+      assert.doesNotMatch(disabled.stdout, /HOOKED/);
+      assert.equal(JSON.parse(disabled.stdout).sheets[0].name, "Sheet1");
+    } finally {
+      await fs.rm(hookDir, { recursive: true, force: true });
+    }
+  });
+
+  it("daemon --no-hooks skips local hooks without poisoning discovery", async () => {
+    const hookDir = await fs.mkdtemp(path.join(tmpDir, "no-hooks-daemon-"));
+    const socket = path.join(
+      os.tmpdir(),
+      `hsx-no-hooks-${process.pid}-${Date.now()}.sock`,
+    );
+    const hookEnv: NodeJS.ProcessEnv = {
+      ...testEnv,
+      HSX_SOCKET_PATH: socket,
+    };
+    delete hookEnv.HSX_NO_HOOKS;
+
+    try {
+      const file = path.join(hookDir, "daemon.xlsx");
+      const created = await hsxRaw(
+        ["--no-daemon", "create", file],
+        hookEnv,
+        undefined,
+        hookDir,
+      );
+      assert.equal(created.code, 0, created.stderr);
+
+      await fs.mkdir(path.join(hookDir, ".headless-spreadjs", "hooks"), {
+        recursive: true,
+      });
+      await fs.writeFile(
+        path.join(hookDir, ".headless-spreadjs", "hooks", "stdout-hook.ts"),
+        [
+          'import type { HookAPI } from "@hewliyang/headless-spreadjs/hooks";',
+          "",
+          "export default function (hsx: HookAPI) {",
+          '  hsx.on("preCommand", { output: "stdout" }, function announce() {',
+          '    console.log("HOOKED");',
+          "  });",
+          "}",
+          "",
+        ].join("\n"),
+      );
+
+      const disabled = await hsxRaw(
+        ["--no-hooks", "info", file],
+        hookEnv,
+        undefined,
+        hookDir,
+      );
+      assert.equal(disabled.code, 0, disabled.stderr);
+      assert.doesNotMatch(disabled.stdout, /HOOKED/);
+      assert.equal(JSON.parse(disabled.stdout).sheets[0].name, "Sheet1");
+
+      const enabled = await hsxRaw(["info", file], hookEnv, undefined, hookDir);
+      assert.equal(enabled.code, 0, enabled.stderr);
+      assert.match(enabled.stdout, /HOOKED/);
+    } finally {
+      await hsxRaw(["daemon", "stop"], hookEnv, undefined, hookDir);
+      await fs.rm(hookDir, { recursive: true, force: true });
     }
   });
 

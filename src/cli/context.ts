@@ -45,6 +45,22 @@ export function getDaemonRuntime(): DaemonRuntime | null {
   return runtimeStore.getStore() ?? null;
 }
 
+function createHookContext(
+  filePath: string,
+  file: ExcelFile,
+  GC: GCNamespace,
+  mutatedRanges: MutatedRange[],
+) {
+  return {
+    ...getCurrentCommand(),
+    filePath,
+    file,
+    workbook: file.workbook,
+    GC,
+    mutatedRanges,
+  };
+}
+
 export async function withFile<T>(
   filePath: string,
   fn: (ctx: FileContext) => T | Promise<T>,
@@ -65,14 +81,7 @@ export async function withFile<T>(
     throwIfAborted(signal);
 
     const mutatedRanges: MutatedRange[] = [];
-    const hookCtx = {
-      ...getCurrentCommand(),
-      filePath,
-      file,
-      workbook: file.workbook,
-      GC,
-      mutatedRanges,
-    };
+    const hookCtx = createHookContext(filePath, file, GC, mutatedRanges);
     await runOnOpenHooks(hookCtx);
 
     const result = await fn({
@@ -103,6 +112,7 @@ async function withFileDaemon<T>(
   throwIfAborted(signal);
 
   const absPath = resolve(rt.cwd, filePath);
+  const wasDirty = rt.fileCache.isDirty(filePath, rt.cwd);
 
   let cached = await rt.fileCache.get(filePath, rt.cwd);
   if (!cached) {
@@ -114,54 +124,49 @@ async function withFileDaemon<T>(
   }
 
   const mutatedRanges: MutatedRange[] = [];
-  const hookCtx = {
-    ...getCurrentCommand(),
-    filePath: cached.absPath,
-    file: cached.file,
-    workbook: cached.file.workbook,
-    GC: rt.GC,
-    mutatedRanges,
-  };
-  await runOnOpenHooks(hookCtx);
-
-  const wasDirty = rt.fileCache.isDirty(filePath, rt.cwd);
-
-  let result: T;
+  let shouldInvalidate = !wasDirty;
   try {
+    const hookCtx = createHookContext(
+      cached.absPath,
+      cached.file,
+      rt.GC,
+      mutatedRanges,
+    );
+    await runOnOpenHooks(hookCtx);
+
     throwIfAborted(signal);
-    result = await fn({
+    const result = await fn({
       file: cached.file,
       workbook: cached.file.workbook,
       GC: rt.GC,
       markMutated: (r) => mutatedRanges.push(r),
     });
+
+    if (options?.save) {
+      throwIfAborted(signal);
+      await runPreSaveHooks(hookCtx);
+      if (rt.writeThrough) {
+        shouldInvalidate = true;
+        await cached.file.save(cached.absPath);
+        throwIfAborted(signal);
+        await rt.fileCache.updateMtime(filePath, rt.cwd);
+        shouldInvalidate = false;
+        await runPostSaveHooks(hookCtx);
+      } else {
+        rt.fileCache.markDirty(filePath, rt.cwd);
+        shouldInvalidate = false;
+        await runPostSaveHooks(hookCtx);
+      }
+    }
+
+    shouldInvalidate = false;
+    return result;
   } catch (err) {
-    if (!wasDirty) {
+    if (shouldInvalidate) {
       rt.fileCache.invalidate(filePath, rt.cwd);
     }
     throw err;
   }
-
-  if (options?.save) {
-    throwIfAborted(signal);
-    await runPreSaveHooks(hookCtx);
-    if (rt.writeThrough) {
-      try {
-        await cached.file.save(cached.absPath);
-        throwIfAborted(signal);
-        await rt.fileCache.updateMtime(filePath, rt.cwd);
-        await runPostSaveHooks(hookCtx);
-      } catch (err) {
-        rt.fileCache.invalidate(filePath, rt.cwd);
-        throw err;
-      }
-    } else {
-      rt.fileCache.markDirty(filePath, rt.cwd);
-      await runPostSaveHooks(hookCtx);
-    }
-  }
-
-  return result;
 }
 
 export async function withNewFile<T>(
@@ -181,12 +186,21 @@ export async function withNewFile<T>(
   try {
     throwIfAborted(signal);
     const file = new EF();
-    const noop = () => {};
+    const mutatedRanges: MutatedRange[] = [];
+    const hookCtx = createHookContext(filePath, file, GC, mutatedRanges);
+    await runOnOpenHooks(hookCtx);
     const result = fn
-      ? await fn({ file, workbook: file.workbook, GC, markMutated: noop })
+      ? await fn({
+          file,
+          workbook: file.workbook,
+          GC,
+          markMutated: (r) => mutatedRanges.push(r),
+        })
       : undefined;
     throwIfAborted(signal);
+    await runPreSaveHooks(hookCtx);
     await file.save(filePath);
+    await runPostSaveHooks(hookCtx);
     return result;
   } finally {
     dispose();
@@ -204,14 +218,23 @@ async function withNewFileDaemon<T>(
 
   const absPath = resolve(rt.cwd, filePath);
   const file = new rt.ExcelFile();
-  const noop = () => {};
+  const mutatedRanges: MutatedRange[] = [];
+  const hookCtx = createHookContext(absPath, file, rt.GC, mutatedRanges);
+  await runOnOpenHooks(hookCtx);
   const result = fn
-    ? await fn({ file, workbook: file.workbook, GC: rt.GC, markMutated: noop })
+    ? await fn({
+        file,
+        workbook: file.workbook,
+        GC: rt.GC,
+        markMutated: (r) => mutatedRanges.push(r),
+      })
     : undefined;
   throwIfAborted(signal);
+  await runPreSaveHooks(hookCtx);
   await file.save(absPath);
   throwIfAborted(signal);
   await rt.fileCache.put(filePath, rt.cwd, file);
   await rt.fileCache.updateMtime(filePath, rt.cwd);
+  await runPostSaveHooks(hookCtx);
   return result;
 }
