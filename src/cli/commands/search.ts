@@ -28,6 +28,7 @@ export async function search(
     ({ workbook }) => {
       const matches: SearchMatch[] = [];
       const max = options.maxResults ?? 500;
+      const lowerTerm = options.matchCase ? term : term.toLowerCase();
 
       const pattern = options.regex
         ? new RegExp(term, options.matchCase ? "" : "i")
@@ -62,9 +63,10 @@ export async function search(
           throwIfAborted(signal);
           for (let c = startCol; c < endCol && matches.length < max; c++) {
             const value = ws.getValue(r, c);
-            const formula = ws.getFormula(r, c);
+            let formula: string | null = null;
 
             if (value === null || value === undefined) {
+              formula = ws.getFormula(r, c);
               if (!formula) continue;
             }
 
@@ -76,10 +78,12 @@ export async function search(
             } else if (options.matchCase) {
               isMatch = text.includes(term);
             } else {
-              isMatch = text.toLowerCase().includes(term.toLowerCase());
+              isMatch = text.toLowerCase().includes(lowerTerm);
             }
 
             if (!isMatch) continue;
+
+            formula ??= ws.getFormula(r, c);
 
             matches.push({
               sheet: sheetName,

@@ -107,10 +107,11 @@ export async function set(
       }
 
       let written = 0;
-
-      ensureSheetSize(sheet, target.end.row + 1, target.end.col + 1);
+      let copiedRange: string | undefined;
 
       file.batch(() => {
+        ensureSheetSize(sheet, target.end.row + 1, target.end.col + 1);
+
         for (let r = 0; r < rows; r++) {
           throwIfAborted(signal);
           for (let c = 0; c < cols; c++) {
@@ -137,53 +138,51 @@ export async function set(
             }
           }
         }
-      });
 
-      let copiedRange: string | undefined;
-
-      if (copyTo) {
-        const copyDst = parseRef(copyTo);
-        const dstSheet = copyDst.sheet
-          ? workbook.getSheetFromName(copyDst.sheet)
-          : sheet;
-        if (!dstSheet) {
-          throw new Error(
-            `Copy-to sheet not found: ${copyDst.sheet ?? "(active)"}`,
-          );
-        }
-
-        const srcRows = rows;
-        const srcCols = cols;
-        const { rows: dstRows, cols: dstCols } = rangeDimensions(copyDst);
-
-        ensureSheetSize(dstSheet, copyDst.end.row + 1, copyDst.end.col + 1);
-
-        const CopyToOptions = GC.Spread.Sheets.CopyToOptions;
-
-        for (let r = 0; r < dstRows; r++) {
-          throwIfAborted(signal);
-          for (let c = 0; c < dstCols; c++) {
-            const sr = target.start.row + (r % srcRows);
-            const sc = target.start.col + (c % srcCols);
-            const dr = copyDst.start.row + r;
-            const dc = copyDst.start.col + c;
-
-            if (dr === sr && dc === sc && sheet === dstSheet) continue;
-
-            sheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+        if (copyTo) {
+          const copyDst = parseRef(copyTo);
+          const dstSheet = copyDst.sheet
+            ? workbook.getSheetFromName(copyDst.sheet)
+            : sheet;
+          if (!dstSheet) {
+            throw new Error(
+              `Copy-to sheet not found: ${copyDst.sheet ?? "(active)"}`,
+            );
           }
+
+          const srcRows = rows;
+          const srcCols = cols;
+          const { rows: dstRows, cols: dstCols } = rangeDimensions(copyDst);
+
+          ensureSheetSize(dstSheet, copyDst.end.row + 1, copyDst.end.col + 1);
+
+          const CopyToOptions = GC.Spread.Sheets.CopyToOptions;
+
+          for (let r = 0; r < dstRows; r++) {
+            throwIfAborted(signal);
+            for (let c = 0; c < dstCols; c++) {
+              const sr = target.start.row + (r % srcRows);
+              const sc = target.start.col + (c % srcCols);
+              const dr = copyDst.start.row + r;
+              const dc = copyDst.start.col + c;
+
+              if (dr === sr && dc === sc && sheet === dstSheet) continue;
+
+              sheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+            }
+          }
+
+          copiedRange = formatRange(copyDst);
+
+          markMutated({
+            sheet: copyDst.sheet ?? dstSheet.name(),
+            startRow: copyDst.start.row,
+            startCol: copyDst.start.col,
+            endRow: copyDst.end.row,
+            endCol: copyDst.end.col,
+          });
         }
-
-        copiedRange = formatRange(copyDst);
-
-        markMutated({
-          sheet: copyDst.sheet ?? dstSheet.name(),
-          startRow: copyDst.start.row,
-          startCol: copyDst.start.col,
-          endRow: copyDst.end.row,
-          endCol: copyDst.end.col,
-        });
-      }
+      });
 
       markMutated({
         sheet: target.sheet ?? sheet.name(),
