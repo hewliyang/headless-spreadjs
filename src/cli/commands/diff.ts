@@ -83,9 +83,7 @@ function collectUsedCells(
   return cells;
 }
 
-function getUsedRange(
-  sheet: SpreadWorksheet,
-): RawUsedRange | null {
+function getUsedRange(sheet: SpreadWorksheet): RawUsedRange | null {
   try {
     return sheet.getUsedRange(USED_RANGE_TYPE_DATA_FORMULA);
   } catch {
@@ -272,7 +270,11 @@ export async function diff(
         const leftUsedRange = leftSheet ? getUsedRange(leftSheet) : null;
         const rightUsedRange = rightSheet ? getUsedRange(rightSheet) : null;
 
-        if (leftSheet && rightSheet && sameUsedRange(leftUsedRange, rightUsedRange)) {
+        if (
+          leftSheet &&
+          rightSheet &&
+          sameUsedRange(leftUsedRange, rightUsedRange)
+        ) {
           const rowEnd = leftUsedRange.row + leftUsedRange.rowCount;
           const colEnd = leftUsedRange.col + leftUsedRange.colCount;
 
@@ -284,13 +286,17 @@ export async function diff(
               const rightValue = rightSheet.getValue(row, col);
               const rightFormula = rightSheet.getFormula(row, col);
 
-              if (!hasContent(leftValue, leftFormula) && !hasContent(rightValue, rightFormula)) {
+              if (
+                !hasContent(leftValue, leftFormula) &&
+                !hasContent(rightValue, rightFormula)
+              ) {
                 continue;
               }
 
               comparedCells++;
 
-              const sameFormula = (leftFormula || null) === (rightFormula || null);
+              const sameFormula =
+                (leftFormula || null) === (rightFormula || null);
               const sameValue = valuesEqual(leftValue, rightValue, epsilon);
               if (sameFormula && sameValue) {
                 continue;
@@ -313,8 +319,12 @@ export async function diff(
           continue;
         }
 
-        const leftCells = leftSheet ? collectUsedCells(leftSheet, signal) : new Map();
-        const rightCells = rightSheet ? collectUsedCells(rightSheet, signal) : new Map();
+        const leftCells = leftSheet
+          ? collectUsedCells(leftSheet, signal)
+          : new Map();
+        const rightCells = rightSheet
+          ? collectUsedCells(rightSheet, signal)
+          : new Map();
 
         const cellKeys = new Set<string>([
           ...leftCells.keys(),
