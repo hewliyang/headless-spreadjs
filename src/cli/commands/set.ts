@@ -156,11 +156,7 @@ export async function set(
         const srcCols = cols;
         const { rows: dstRows, cols: dstCols } = rangeDimensions(copyDst);
 
-        ensureSheetSize(
-          dstSheet,
-          copyDst.end.row + 1,
-          copyDst.end.col + 1,
-        );
+        ensureSheetSize(dstSheet, copyDst.end.row + 1, copyDst.end.col + 1);
 
         const CopyToOptions = GC.Spread.Sheets.CopyToOptions;
 
@@ -174,15 +170,7 @@ export async function set(
 
             if (dr === sr && dc === sc && sheet === dstSheet) continue;
 
-            sheet.copyTo(
-              sr,
-              sc,
-              dr,
-              dc,
-              1,
-              1,
-              CopyToOptions.all,
-            );
+            sheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
           }
         }
 

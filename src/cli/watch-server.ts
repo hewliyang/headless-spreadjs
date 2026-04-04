@@ -1,8 +1,8 @@
 import {
-	createServer,
-	type IncomingMessage,
-	type Server,
-	type ServerResponse,
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
 } from "node:http";
 import { basename } from "node:path";
 import { getRegistry } from "../hooks.js";
@@ -12,19 +12,19 @@ import { getRegistry } from "../hooks.js";
 // ---------------------------------------------------------------------------
 
 export interface WatchFileProvider {
-	/** List currently known file absolute paths */
-	listFiles(): string[];
+  /** List currently known file absolute paths */
+  listFiles(): string[];
 
-	/** Get the xlsx buffer for a file (from memory or disk) */
-	getBuffer(absPath: string): Promise<Buffer | null>;
+  /** Get the xlsx buffer for a file (from memory or disk) */
+  getBuffer(absPath: string): Promise<Buffer | null>;
 
-	/** Subscribe to file events. Returns unsubscribe function. */
-	subscribe(listener: WatchEventListener): () => void;
+  /** Subscribe to file events. Returns unsubscribe function. */
+  subscribe(listener: WatchEventListener): () => void;
 }
 
 export type WatchEvent =
-	| { type: "opened"; absPath: string }
-	| { type: "changed"; absPath: string };
+  | { type: "opened"; absPath: string }
+  | { type: "changed"; absPath: string };
 
 export type WatchEventListener = (event: WatchEvent) => void;
 
@@ -33,24 +33,24 @@ export type WatchEventListener = (event: WatchEvent) => void;
 // ---------------------------------------------------------------------------
 
 function sseConnect(res: ServerResponse, clients: Set<ServerResponse>): void {
-	res.writeHead(200, {
-		"Content-Type": "text/event-stream",
-		"Cache-Control": "no-cache",
-		Connection: "keep-alive",
-		"Access-Control-Allow-Origin": "*",
-	});
-	res.write(": connected\n\n");
-	clients.add(res);
-	res.on("close", () => clients.delete(res));
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+  });
+  res.write(": connected\n\n");
+  clients.add(res);
+  res.on("close", () => clients.delete(res));
 }
 
 function sseBroadcast(clients: Set<ServerResponse>, data: string): void {
-	const frame = `data: ${data}\n\n`;
-	for (const c of clients) {
-		try {
-			c.write(frame);
-		} catch {}
-	}
+  const frame = `data: ${data}\n\n`;
+  for (const c of clients) {
+    try {
+      c.write(frame);
+    } catch {}
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -58,28 +58,28 @@ function sseBroadcast(clients: Set<ServerResponse>, data: string): void {
 // ---------------------------------------------------------------------------
 
 function getHookName(fn: unknown): string {
-	if (typeof fn === "function" && fn.name) return fn.name;
-	return "(anonymous)";
+  if (typeof fn === "function" && fn.name) return fn.name;
+  return "(anonymous)";
 }
 
 async function getHooksSummary(): Promise<{
-	hooks: { event: string; name: string }[];
-	total: number;
+  hooks: { event: string; name: string }[];
+  total: number;
 }> {
-	const registry = await getRegistry();
-	const hooks: { event: string; name: string }[] = [];
-	for (const event of [
-		"preCommand",
-		"postCommand",
-		"onOpen",
-		"preSave",
-		"postSave",
-	] as const) {
-		for (const entry of registry[event]) {
-			hooks.push({ event, name: getHookName(entry.fn) });
-		}
-	}
-	return { hooks, total: hooks.length };
+  const registry = await getRegistry();
+  const hooks: { event: string; name: string }[] = [];
+  for (const event of [
+    "preCommand",
+    "postCommand",
+    "onOpen",
+    "preSave",
+    "postSave",
+  ] as const) {
+    for (const entry of registry[event]) {
+      hooks.push({ event, name: getHookName(entry.fn) });
+    }
+  }
+  return { hooks, total: hooks.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -87,8 +87,8 @@ async function getHooksSummary(): Promise<{
 // ---------------------------------------------------------------------------
 
 function buildViewerHTML(filenames: string[]): string {
-	const fileListJSON = JSON.stringify(filenames);
-	return `<!DOCTYPE html>
+  const fileListJSON = JSON.stringify(filenames);
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -680,166 +680,166 @@ requestAnimationFrame(function(){
 // ---------------------------------------------------------------------------
 
 export class WatchServer {
-	private server: Server;
-	private sseClients = new Set<ServerResponse>();
-	private fileNames: string[] = []; // display names
-	private fileMap = new Map<string, string>(); // displayName → absPath
-	private reverseMap = new Map<string, string>(); // absPath → displayName
-	private provider: WatchFileProvider;
-	private unsub: (() => void) | null = null;
+  private server: Server;
+  private sseClients = new Set<ServerResponse>();
+  private fileNames: string[] = []; // display names
+  private fileMap = new Map<string, string>(); // displayName → absPath
+  private reverseMap = new Map<string, string>(); // absPath → displayName
+  private provider: WatchFileProvider;
+  private unsub: (() => void) | null = null;
 
-	constructor(provider: WatchFileProvider) {
-		this.provider = provider;
-		this.syncFiles(provider.listFiles());
-		this.server = createServer(this.handleHttp.bind(this));
-	}
+  constructor(provider: WatchFileProvider) {
+    this.provider = provider;
+    this.syncFiles(provider.listFiles());
+    this.server = createServer(this.handleHttp.bind(this));
+  }
 
-	private displayName(absPath: string): string {
-		return basename(absPath);
-	}
+  private displayName(absPath: string): string {
+    return basename(absPath);
+  }
 
-	private syncFiles(absPaths: string[]): boolean {
-		// Deduplicate display names
-		const counts = new Map<string, number>();
-		for (const p of absPaths) {
-			const n = this.displayName(p);
-			counts.set(n, (counts.get(n) ?? 0) + 1);
-		}
+  private syncFiles(absPaths: string[]): boolean {
+    // Deduplicate display names
+    const counts = new Map<string, number>();
+    for (const p of absPaths) {
+      const n = this.displayName(p);
+      counts.set(n, (counts.get(n) ?? 0) + 1);
+    }
 
-		const newNames: string[] = [];
-		const newFileMap = new Map<string, string>();
-		const newReverseMap = new Map<string, string>();
+    const newNames: string[] = [];
+    const newFileMap = new Map<string, string>();
+    const newReverseMap = new Map<string, string>();
 
-		for (const p of absPaths) {
-			let name = this.displayName(p);
-			if ((counts.get(name) ?? 0) > 1) name = p;
-			newNames.push(name);
-			newFileMap.set(name, p);
-			newReverseMap.set(p, name);
-		}
+    for (const p of absPaths) {
+      let name = this.displayName(p);
+      if ((counts.get(name) ?? 0) > 1) name = p;
+      newNames.push(name);
+      newFileMap.set(name, p);
+      newReverseMap.set(p, name);
+    }
 
-		const changed = JSON.stringify(newNames) !== JSON.stringify(this.fileNames);
-		this.fileNames = newNames;
-		this.fileMap = newFileMap;
-		this.reverseMap = newReverseMap;
-		return changed;
-	}
+    const changed = JSON.stringify(newNames) !== JSON.stringify(this.fileNames);
+    this.fileNames = newNames;
+    this.fileMap = newFileMap;
+    this.reverseMap = newReverseMap;
+    return changed;
+  }
 
-	async start(port: number): Promise<number> {
-		// Subscribe to file events
-		this.unsub = this.provider.subscribe((event) => {
-			if (event.type === "opened") {
-				const files = this.provider.listFiles();
-				if (this.syncFiles(files)) {
-					sseBroadcast(
-						this.sseClients,
-						JSON.stringify({ type: "files", files: this.fileNames }),
-					);
-				}
-			} else if (event.type === "changed") {
-				const name = this.reverseMap.get(event.absPath);
-				if (name) {
-					sseBroadcast(
-						this.sseClients,
-						JSON.stringify({ type: "reload", file: name }),
-					);
-				}
-			}
-		});
+  async start(port: number): Promise<number> {
+    // Subscribe to file events
+    this.unsub = this.provider.subscribe((event) => {
+      if (event.type === "opened") {
+        const files = this.provider.listFiles();
+        if (this.syncFiles(files)) {
+          sseBroadcast(
+            this.sseClients,
+            JSON.stringify({ type: "files", files: this.fileNames }),
+          );
+        }
+      } else if (event.type === "changed") {
+        const name = this.reverseMap.get(event.absPath);
+        if (name) {
+          sseBroadcast(
+            this.sseClients,
+            JSON.stringify({ type: "reload", file: name }),
+          );
+        }
+      }
+    });
 
-		return new Promise<number>((resolve, reject) => {
-			this.server.on("error", reject);
-			this.server.listen(port, () => {
-				const addr = this.server.address();
-				const actualPort = typeof addr === "object" && addr ? addr.port : port;
-				resolve(actualPort);
-			});
-		});
-	}
+    return new Promise<number>((resolve, reject) => {
+      this.server.on("error", reject);
+      this.server.listen(port, () => {
+        const addr = this.server.address();
+        const actualPort = typeof addr === "object" && addr ? addr.port : port;
+        resolve(actualPort);
+      });
+    });
+  }
 
-	stop(): void {
-		if (this.unsub) {
-			this.unsub();
-			this.unsub = null;
-		}
-		for (const c of this.sseClients) {
-			try {
-				c.end();
-			} catch {}
-		}
-		this.sseClients.clear();
-		this.server.close();
-	}
+  stop(): void {
+    if (this.unsub) {
+      this.unsub();
+      this.unsub = null;
+    }
+    for (const c of this.sseClients) {
+      try {
+        c.end();
+      } catch {}
+    }
+    this.sseClients.clear();
+    this.server.close();
+  }
 
-	private handleHttp(req: IncomingMessage, res: ServerResponse): void {
-		const url = req.url ?? "/";
+  private handleHttp(req: IncomingMessage, res: ServerResponse): void {
+    const url = req.url ?? "/";
 
-		if (url === "/events") {
-			sseConnect(res, this.sseClients);
-			return;
-		}
+    if (url === "/events") {
+      sseConnect(res, this.sseClients);
+      return;
+    }
 
-		if (url === "/hooks") {
-			getHooksSummary()
-				.then((summary) => {
-					const body = Buffer.from(JSON.stringify(summary), "utf-8");
-					res.writeHead(200, {
-						"Content-Type": "application/json",
-						"Content-Length": body.length,
-						"Cache-Control": "no-cache",
-					});
-					res.end(body);
-				})
-				.catch(() => {
-					res.writeHead(500);
-					res.end("Internal error");
-				});
-			return;
-		}
+    if (url === "/hooks") {
+      getHooksSummary()
+        .then((summary) => {
+          const body = Buffer.from(JSON.stringify(summary), "utf-8");
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Content-Length": body.length,
+            "Cache-Control": "no-cache",
+          });
+          res.end(body);
+        })
+        .catch(() => {
+          res.writeHead(500);
+          res.end("Internal error");
+        });
+      return;
+    }
 
-		if (url === "/" || url === "/index.html") {
-			const html = buildViewerHTML(this.fileNames);
-			const body = Buffer.from(html, "utf-8");
-			res.writeHead(200, {
-				"Content-Type": "text/html; charset=utf-8",
-				"Content-Length": body.length,
-			});
-			res.end(body);
-			return;
-		}
+    if (url === "/" || url === "/index.html") {
+      const html = buildViewerHTML(this.fileNames);
+      const body = Buffer.from(html, "utf-8");
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": body.length,
+      });
+      res.end(body);
+      return;
+    }
 
-		if (url.startsWith("/file/")) {
-			const reqName = decodeURIComponent(url.slice(6).split("?")[0]);
-			const absPath = this.fileMap.get(reqName);
-			if (absPath) {
-				this.provider
-					.getBuffer(absPath)
-					.then((buf) => {
-						if (buf) {
-							res.writeHead(200, {
-								"Content-Type":
-									"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-								"Content-Length": buf.length,
-								"Cache-Control": "no-cache",
-							});
-							res.end(buf);
-						} else {
-							res.writeHead(404);
-							res.end("Not found");
-						}
-					})
-					.catch(() => {
-						res.writeHead(500);
-						res.end("Internal error");
-					});
-				return;
-			}
-			res.writeHead(404);
-			res.end("Not found");
-			return;
-		}
+    if (url.startsWith("/file/")) {
+      const reqName = decodeURIComponent(url.slice(6).split("?")[0]);
+      const absPath = this.fileMap.get(reqName);
+      if (absPath) {
+        this.provider
+          .getBuffer(absPath)
+          .then((buf) => {
+            if (buf) {
+              res.writeHead(200, {
+                "Content-Type":
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Content-Length": buf.length,
+                "Cache-Control": "no-cache",
+              });
+              res.end(buf);
+            } else {
+              res.writeHead(404);
+              res.end("Not found");
+            }
+          })
+          .catch(() => {
+            res.writeHead(500);
+            res.end("Internal error");
+          });
+        return;
+      }
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
 
-		res.writeHead(404);
-		res.end("Not found");
-	}
+    res.writeHead(404);
+    res.end("Not found");
+  }
 }

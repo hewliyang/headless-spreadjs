@@ -260,9 +260,8 @@ export async function watch(
 
   if (options.open) {
     const url = `http://127.0.0.1:${actualPort}`;
-    openUrl(
-      url,
-      (message) => writeStderr(`Warning: failed to open browser: ${message}\n`),
+    openUrl(url, (message) =>
+      writeStderr(`Warning: failed to open browser: ${message}\n`),
     );
   }
 

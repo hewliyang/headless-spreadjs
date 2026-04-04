@@ -2,11 +2,6 @@ import type { SpreadWorkbook } from "../../types.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
-import {
-  EXCEL_MAX_COLS,
-  EXCEL_MAX_ROWS,
-  ensureSheetSize,
-} from "../sheet-size.js";
 
 export type SheetOp = "list" | "create" | "delete" | "rename";
 
@@ -38,7 +33,6 @@ export async function sheet(
           if (!name) fail("Usage: hsx sheet <file> create <name>");
           file.batch(() => {
             const ws = new GC.Spread.Sheets.Worksheet(name);
-            ensureSheetSize(ws, EXCEL_MAX_ROWS, EXCEL_MAX_COLS);
             workbook.addSheet(workbook.getSheetCount(), ws);
           });
           ok({ created: name, index: workbook.getSheetCount() - 1 });

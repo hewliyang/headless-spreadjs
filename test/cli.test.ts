@@ -367,6 +367,32 @@ describe("cli", () => {
     assert.equal(data.cells.V202.value, "helper");
   });
 
+  it("eval preserves sane sheet dimensions and expands only on demand", async () => {
+    const evalFile = path.join(tmpDir, "eval-dimensions.xlsx");
+    await hsx(["create", evalFile]);
+
+    const { stdout: beforeOut } = await hsx([
+      "eval",
+      evalFile,
+      "return { rows: sheet.getRowCount(), cols: sheet.getColumnCount() };",
+    ]);
+    const before = JSON.parse(beforeOut);
+    assert.equal(before.result.rows, 200);
+    assert.equal(before.result.cols, 20);
+
+    const { stdout: afterOut } = await hsx([
+      "eval",
+      evalFile,
+      `
+      range("V202").value("tail");
+      return { rows: sheet.getRowCount(), cols: sheet.getColumnCount() };
+      `,
+    ]);
+    const after = JSON.parse(afterOut);
+    assert.equal(after.result.rows, 202);
+    assert.equal(after.result.cols, 22);
+  });
+
   it("eval can create charts", async () => {
     const cells = [
       [{ value: "Month" }, { value: "Rev" }],
