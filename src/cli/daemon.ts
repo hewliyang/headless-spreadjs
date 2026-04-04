@@ -114,9 +114,11 @@ async function runIsolatedCli(
 ): Promise<DaemonResponse> {
   return new Promise((resolve, reject) => {
     const spawnSpec = getCliSpawnSpec();
+    const globalFlags = ["--no-daemon"];
+    if (request.noHooks) globalFlags.push("--no-hooks");
     const child = spawn(
       spawnSpec.command,
-      [...spawnSpec.args, "--no-daemon", ...request.argv],
+      [...spawnSpec.args, ...globalFlags, ...request.argv],
       {
         cwd: request.cwd,
         env: { ...process.env },

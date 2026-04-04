@@ -160,8 +160,15 @@ export async function set(
           const SheetArea = GC.Spread.Sheets.SheetArea;
           const StorageType = GC.Spread.Sheets.StorageType;
           const needsCrossSheetCopy = sheet !== dstSheet;
+          const sameSheetOverlap =
+            !needsCrossSheetCopy &&
+            target.start.row <= copyDst.end.row &&
+            copyDst.start.row <= target.end.row &&
+            target.start.col <= copyDst.end.col &&
+            copyDst.start.col <= target.end.col;
+          const needsHelper = needsCrossSheetCopy || sameSheetOverlap;
           const helperIndex = workbook.getSheetCount();
-          const helperSheet = needsCrossSheetCopy
+          const helperSheet = needsHelper
             ? new GC.Spread.Sheets.Worksheet(
                 `__hsx_copy_to_${Date.now().toString(36)}`,
               )
@@ -251,12 +258,30 @@ export async function set(
                   const adjustedValue = helperSheet.getValue(dr, dc);
                   if (adjustedValue !== null && adjustedValue !== undefined) {
                     dstSheet.setValue(dr, dc, adjustedValue);
+                  } else {
+                    dstSheet.clear(
+                      dr,
+                      dc,
+                      1,
+                      1,
+                      SheetArea.viewport,
+                      StorageType.data,
+                    );
                   }
                 }
 
                 const adjustedStyle = helperSheet.getStyle(dr, dc);
                 if (adjustedStyle) {
                   dstSheet.setStyle(dr, dc, adjustedStyle);
+                } else {
+                  dstSheet.clear(
+                    dr,
+                    dc,
+                    1,
+                    1,
+                    SheetArea.viewport,
+                    StorageType.style,
+                  );
                 }
               }
             }

@@ -132,7 +132,7 @@ async function withFileDaemon<T>(
       rt.GC,
       mutatedRanges,
     );
-    await runOnOpenHooks(hookCtx);
+    const hooksRan = await runOnOpenHooks(hookCtx);
 
     throwIfAborted(signal);
     const result = await fn({
@@ -157,6 +157,8 @@ async function withFileDaemon<T>(
         shouldInvalidate = false;
         await runPostSaveHooks(hookCtx);
       }
+    } else if (hooksRan) {
+      rt.fileCache.invalidate(filePath, rt.cwd);
     }
 
     shouldInvalidate = false;

@@ -443,7 +443,7 @@ export async function runPostCommandHooks(
   }
 }
 
-export async function runOnOpenHooks(ctx: HookContext): Promise<void> {
+export async function runOnOpenHooks(ctx: HookContext): Promise<boolean> {
   const registry = await getRegistry();
   for (const entry of registry.onOpen) {
     await runHookWithPrefix(
@@ -453,6 +453,7 @@ export async function runOnOpenHooks(ctx: HookContext): Promise<void> {
       entry.output,
     );
   }
+  return registry.onOpen.length > 0;
 }
 
 export async function runPreSaveHooks(ctx: HookContext): Promise<void> {
