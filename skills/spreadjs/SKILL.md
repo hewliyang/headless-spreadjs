@@ -28,6 +28,7 @@ hsx info file.xlsx                                     # workbook metadata
 hsx get file.xlsx "Sheet1!A1:C10"                      # read cells → JSON
 hsx csv file.xlsx "Sheet1!A1:C10" [--mode value|formula|both] [--formulas]
 hsx set file.xlsx "Sheet1!A1:C3" '<json>'              # write cells
+hsx set file.xlsx "A1" '<json>' --copy-to "A1:D1"   # write + expand pattern (like drag-fill)
 hsx clear file.xlsx "A1:C10" [--type all|styles]       # clear values (default), all, or styles
 hsx search file.xlsx "term" [--sheet S] [--regex]      # find values
 hsx copy file.xlsx "A1:C1" "A10:C10"                   # copy range (formulas + styles)
@@ -59,6 +60,20 @@ hsx set file.xlsx "A1:B3" '[
 
 Each cell: `{"value": ...}`, `{"formula": "=..."}`, optional `"style": {...}`.
 
+`--copy-to <range>`: after writing, expand the written cells across the target range using SpreadJS `copyTo` (like Excel drag-fill). Relative formula references adjust automatically. The source cells tile/repeat to fill the destination. Works cross-sheet.
+
+```bash
+# Write one formula+style cell, expand across a row
+hsx set file.xlsx "B7" '[[{"formula":"=SUM(B2:B6)","style":{"fontStyle":{"bold":true},"formatter":"#,##0"}}]]' --copy-to "B7:N7"
+# Result: B7=SUM(B2:B6), C7=SUM(C2:C6), ..., N7=SUM(N2:N6) — all with same style
+
+# Multi-row template tiled across columns
+hsx set file.xlsx "B5:B6" '[
+  [{"formula":"=SUM(B2:B4)","style":{"fontStyle":{"bold":true}}}],
+  [{"formula":"=AVERAGE(B2:B4)","style":{"fontStyle":{"italic":true}}}]
+]' --copy-to "B5:D6"
+```
+
 `style` (SpreadJS-style):
 - `fontStyle`: `{ bold?: boolean, italic?: boolean, underline?: boolean }`
 - `fontSize`: CSS size string (e.g. `"12px"`)
@@ -66,7 +81,14 @@ Each cell: `{"value": ...}`, `{"formula": "=..."}`, optional `"style": {...}`.
 - `foreColor`
 - `backColor`
 - `hAlign`: SpreadJS `HorizontalAlign` enum value
-- `formatter`
+- `vAlign`: SpreadJS `VerticalAlign` enum value (0=top, 1=center, 2=bottom)
+- `formatter`: Excel number format string (e.g. `"#,##0"`, `"0.0%"`, `"$#,##0.00"`, `"yyyy-mm-dd"`)
+- `wordWrap`: `boolean`
+- `textIndent`: `number` (indent level)
+- `borderLeft`, `borderTop`, `borderRight`, `borderBottom`: `{ color?: string, style?: string }`
+  - `style` values: `"thin"`, `"medium"`, `"dashed"`, `"dotted"`, `"thick"`, `"double"`, `"hair"`, `"mediumDashed"`, `"dashDot"`, `"mediumDashDot"`, `"dashDotDot"`, `"mediumDashDotDot"`, `"slantedDashDot"`
+
+Always set `formatter` inline in the style — don't use `eval` just to format cells.
 
 ## Read
 
@@ -231,6 +253,8 @@ The file is at `./spreadjs.d.ts`. Use `grep -n` to find what you need, then `rea
 - Use formulas, not hardcoded computed values: `{"formula":"=SUM(A1:A9)"}` not `{"value":45}`
 - Keep each `set` call focused; build incrementally across multiple calls
 - Use `hsx get` or `hsx csv` to verify after writes
+- Use `--copy-to` to expand formulas + styles across rows/columns instead of spelling out every cell
+- Set `formatter` in the cell style inline — avoid `eval` just for number formatting
 - Use `hsx deps` / `hsx refs` for repeatable lineage checks; use `eval` for custom one-offs
 - Prefer uniform column widths; use empty columns for indentation
 - Always specify units in headers: `Revenue ($mm)`, `Growth (%)`

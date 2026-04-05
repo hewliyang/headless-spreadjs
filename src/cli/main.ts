@@ -1,10 +1,33 @@
+import { exec } from "node:child_process";
 import { createRequire } from "node:module";
+import {
+  discoverHooks,
+  runWithHooksDisabled,
+  setHookWriters,
+} from "../hooks.js";
 import { registerSignalTimeout } from "./abort.js";
 import { spawnDaemon, tryDaemon, tryExistingDaemon } from "./client.js";
 import { dispatch, USAGE } from "./dispatch.js";
-import { createIoContext, runWithIo } from "./output.js";
+import {
+  createIoContext,
+  runWithIo,
+  writeStderr,
+  writeStdout,
+} from "./output.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+function openUrl(url: string): void {
+  const cmd =
+    process.platform === "darwin"
+      ? `open "${url}"`
+      : process.platform === "win32"
+        ? `start "" "${url}"`
+        : `xdg-open "${url}"`;
+
+  const child = exec(cmd, () => {});
+  child.on("error", () => {});
+}
 
 function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
@@ -26,9 +49,11 @@ function parseTimeoutValue(raw: string): number {
 function parseGlobalOptions(args: string[]): {
   args: string[];
   timeoutMs: number;
+  noHooks: boolean;
 } {
   const out: string[] = [];
   let timeoutMs = DEFAULT_TIMEOUT_MS;
+  let noHooks = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -48,10 +73,15 @@ function parseGlobalOptions(args: string[]): {
       continue;
     }
 
+    if (arg === "--no-hooks") {
+      noHooks = true;
+      continue;
+    }
+
     out.push(arg);
   }
 
-  return { args: out, timeoutMs };
+  return { args: out, timeoutMs, noHooks };
 }
 
 async function runWithTimeout<T>(
@@ -143,11 +173,13 @@ async function exitWith(
 export async function main(): Promise<void> {
   let args: string[];
   let timeoutMs: number;
+  let noHooks: boolean;
 
   try {
     const parsed = parseGlobalOptions(process.argv.slice(2));
     args = parsed.args;
     timeoutMs = parsed.timeoutMs;
+    noHooks = parsed.noHooks;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return exitWith(1, { stderr: `${JSON.stringify({ error: message })}\n` });
@@ -164,7 +196,9 @@ export async function main(): Promise<void> {
   }
 
   const noDaemon = hasFlag(args, "--no-daemon");
-  const filteredArgs = args.filter((a) => a !== "--no-daemon");
+  const filteredArgs = args.filter(
+    (a) => a !== "--no-daemon" && a !== "--no-hooks",
+  );
 
   if (filteredArgs[0] === "daemon") {
     const sub = filteredArgs[1];
@@ -182,7 +216,67 @@ export async function main(): Promise<void> {
       }
     }
 
-    if (sub === "stop" || sub === "status" || sub === "flush") {
+    if (sub === "watch") {
+      const portIdx = filteredArgs.indexOf("--port");
+      const port = portIdx !== -1 ? filteredArgs[portIdx + 1] : "8080";
+      const hasOpen = filteredArgs.includes("--open");
+
+      // Ensure daemon is running
+      let result = await tryExistingDaemon(
+        ["daemon", "watch", "--port", port],
+        process.cwd(),
+        undefined,
+        timeoutMs,
+      );
+
+      let spawnError: unknown;
+      if (!result) {
+        try {
+          await spawnDaemon(timeoutMs);
+          result = await tryExistingDaemon(
+            ["daemon", "watch", "--port", port],
+            process.cwd(),
+            undefined,
+            timeoutMs,
+          );
+        } catch (err) {
+          spawnError = err;
+        }
+      }
+
+      if (result) {
+        if (result.exitCode === 0 && hasOpen) {
+          try {
+            const parsed = JSON.parse(result.stdout.trim()) as {
+              url?: string;
+            };
+            if (parsed.url) {
+              openUrl(parsed.url);
+            }
+          } catch {}
+        }
+        return exitWith(result.exitCode, {
+          stdout: result.stdout,
+          stderr: result.stderr,
+        });
+      }
+
+      const message =
+        spawnError instanceof Error
+          ? spawnError.message
+          : "Failed to start watch server";
+      return exitWith(1, {
+        stderr: `${JSON.stringify({ error: message })}\n`,
+      });
+    }
+
+    if (
+      sub === "stop" ||
+      sub === "status" ||
+      sub === "flush" ||
+      sub === "files" ||
+      sub === "unwatch"
+    ) {
       const result = await tryExistingDaemon(
         filteredArgs,
         process.cwd(),
@@ -202,14 +296,29 @@ export async function main(): Promise<void> {
         });
       }
 
+      if (sub === "files") {
+        return exitWith(0, {
+          stdout: `${JSON.stringify({ files: [] })}\n`,
+        });
+      }
+
       return exitWith(1, {
         stdout: `${JSON.stringify({ error: "No daemon running" })}\n`,
       });
     }
 
     return exitWith(1, {
-      stderr: "Usage: hsx daemon start|stop|status|flush\n",
+      stderr: "Usage: hsx daemon start|stop|status|files|flush|watch|unwatch\n",
     });
+  }
+
+  // Wire hook output through CLI's IO layer, then discover
+  setHookWriters(
+    (data) => writeStdout(data),
+    (data) => writeStderr(data),
+  );
+  if (!noHooks) {
+    await discoverHooks();
   }
 
   if (!noDaemon) {
@@ -234,6 +343,7 @@ export async function main(): Promise<void> {
       process.cwd(),
       stdin,
       timeoutMs,
+      noHooks,
     );
     if (result) {
       return exitWith(result.exitCode, {
@@ -248,7 +358,9 @@ export async function main(): Promise<void> {
         await runWithTimeout(
           (signal) =>
             Promise.resolve(
-              runWithIo(io, () => dispatch(filteredArgs, { signal })),
+              runWithHooksDisabled(noHooks, () =>
+                runWithIo(io, () => dispatch(filteredArgs, { signal })),
+              ),
             ),
           timeoutMs,
         );
@@ -263,7 +375,12 @@ export async function main(): Promise<void> {
 
   try {
     await runWithTimeout(
-      (signal) => dispatch(filteredArgs, { signal }),
+      (signal) =>
+        Promise.resolve(
+          runWithHooksDisabled(noHooks, () =>
+            dispatch(filteredArgs, { signal }),
+          ),
+        ),
       timeoutMs,
     );
   } catch (err) {

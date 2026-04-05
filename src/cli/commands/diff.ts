@@ -83,6 +83,34 @@ function collectUsedCells(
   return cells;
 }
 
+function getUsedRange(sheet: SpreadWorksheet): RawUsedRange | null {
+  try {
+    return sheet.getUsedRange(USED_RANGE_TYPE_DATA_FORMULA);
+  } catch {
+    return null;
+  }
+}
+
+function hasContent(value: unknown, formula: string | null): boolean {
+  return !!formula || (value !== null && value !== undefined && value !== "");
+}
+
+function sameUsedRange(
+  left: RawUsedRange | null,
+  right: RawUsedRange | null,
+): left is NonNullable<RawUsedRange> {
+  return !!(
+    left &&
+    right &&
+    left.row === right.row &&
+    left.col === right.col &&
+    left.rowCount === right.rowCount &&
+    left.colCount === right.colCount &&
+    left.rowCount > 0 &&
+    left.colCount > 0
+  );
+}
+
 const DEFAULT_NUMERIC_EPSILON = 1e-8;
 
 function numbersNearlyEqual(a: number, b: number, epsilon: number): boolean {
@@ -238,6 +266,58 @@ export async function diff(
         throwIfAborted(signal);
         const leftSheet = leftWorkbook.getSheetFromName(sheetName);
         const rightSheet = rightWorkbook.getSheetFromName(sheetName);
+
+        const leftUsedRange = leftSheet ? getUsedRange(leftSheet) : null;
+        const rightUsedRange = rightSheet ? getUsedRange(rightSheet) : null;
+
+        if (
+          leftSheet &&
+          rightSheet &&
+          sameUsedRange(leftUsedRange, rightUsedRange)
+        ) {
+          const rowEnd = leftUsedRange.row + leftUsedRange.rowCount;
+          const colEnd = leftUsedRange.col + leftUsedRange.colCount;
+
+          for (let row = leftUsedRange.row; row < rowEnd; row++) {
+            throwIfAborted(signal);
+            for (let col = leftUsedRange.col; col < colEnd; col++) {
+              const leftValue = leftSheet.getValue(row, col);
+              const leftFormula = leftSheet.getFormula(row, col);
+              const rightValue = rightSheet.getValue(row, col);
+              const rightFormula = rightSheet.getFormula(row, col);
+
+              if (
+                !hasContent(leftValue, leftFormula) &&
+                !hasContent(rightValue, rightFormula)
+              ) {
+                continue;
+              }
+
+              comparedCells++;
+
+              const sameFormula =
+                (leftFormula || null) === (rightFormula || null);
+              const sameValue = valuesEqual(leftValue, rightValue, epsilon);
+              if (sameFormula && sameValue) {
+                continue;
+              }
+
+              recordDiff({
+                sheet: sheetName,
+                cell: cellToA1(row, col),
+                left: {
+                  value: leftValue ?? null,
+                  formula: leftFormula || null,
+                },
+                right: {
+                  value: rightValue ?? null,
+                  formula: rightFormula || null,
+                },
+              });
+            }
+          }
+          continue;
+        }
 
         const leftCells = leftSheet
           ? collectUsedCells(leftSheet, signal)

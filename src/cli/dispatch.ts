@@ -1,3 +1,8 @@
+import {
+  runPostCommandHooks,
+  runPreCommandHooks,
+  setCurrentCommand,
+} from "../hooks.js";
 import { clear } from "./commands/clear.js";
 import { copy } from "./commands/copy.js";
 import { create } from "./commands/create.js";
@@ -23,7 +28,7 @@ Commands:
   info <file>                                Show workbook metadata
   get <file> <ref>                           Read cells (Sheet1!A1:C10)
   csv <file> <ref> [--mode M] [--formulas]  Read range as CSV
-  set <file> <ref> [json]                    Write cells (JSON from arg or stdin)
+  set <file> <ref> [json] [--copy-to R]       Write cells, optionally expand pattern
   clear <file> <ref> [--type all|styles]     Clear a range (default: values only)
   search <file> <term> [--sheet S] [--regex] Search for values across sheets
   copy <file> <src> <dst>                    Copy range (formulas + styles)
@@ -39,7 +44,10 @@ Commands:
   daemon start                               Start the background daemon
   daemon stop                                Stop the background daemon
   daemon status                              Show daemon status
+  daemon files                               List cached files in daemon
   daemon flush                               Flush buffered workbook writes
+  daemon watch [--port N] [--open]           Start live-preview server (auto-starts daemon)
+  daemon unwatch                             Stop the watch server (keeps daemon running)
 
 Options:
   --no-daemon                                Skip daemon, run directly
@@ -220,14 +228,11 @@ function parseTraceDepth(args: string[]): number {
   return hasFlag(args, "--recursive") ? 50 : 1;
 }
 
-export async function dispatch(
-  args: string[],
-  options?: { signal?: AbortSignal | null },
+async function dispatchCommand(
+  command: string,
+  rest: string[],
+  signal?: AbortSignal | null,
 ): Promise<void> {
-  const signal = options?.signal;
-  const command = args[0];
-  const rest = args.slice(1);
-
   switch (command) {
     case "create": {
       const file = requireArg(rest, 0, "create <file>");
@@ -259,8 +264,9 @@ export async function dispatch(
     case "set": {
       const file = requireArg(rest, 0, "set <file> <ref> [json]");
       const ref = requireArg(rest, 1, "set <file> <ref> [json]");
-      const json = rest[2];
-      await set(file, ref, json, { signal });
+      const copyToVal = flag(rest, "--copy-to");
+      const json = rest[2] && !rest[2].startsWith("--") ? rest[2] : undefined;
+      await set(file, ref, json, { signal, copyTo: copyToVal });
       break;
     }
 
@@ -423,5 +429,32 @@ export async function dispatch(
       writeStderr(`Unknown command: ${command}\n`);
       writeStdout(`${USAGE}\n`);
       throw new Error(`Unknown command: ${command}`);
+  }
+}
+
+export async function dispatch(
+  args: string[],
+  options?: { signal?: AbortSignal | null },
+): Promise<void> {
+  const signal = options?.signal;
+  const command = args[0];
+  const rest = args.slice(1);
+
+  setCurrentCommand({ command, args: rest });
+
+  try {
+    await runPreCommandHooks({ command, args: rest });
+
+    let error: Error | undefined;
+    try {
+      await dispatchCommand(command, rest, signal);
+    } catch (err) {
+      error = err instanceof Error ? err : new Error(String(err));
+      throw error;
+    } finally {
+      await runPostCommandHooks({ command, args: rest, error });
+    }
+  } finally {
+    setCurrentCommand(null);
   }
 }

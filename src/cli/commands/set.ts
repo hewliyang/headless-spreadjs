@@ -28,9 +28,10 @@ export async function set(
   filePath: string,
   ref: string,
   jsonArg: string | undefined,
-  options?: { signal?: AbortSignal | null },
+  options?: { signal?: AbortSignal | null; copyTo?: string },
 ): Promise<void> {
   const signal = options?.signal;
+  const copyTo = options?.copyTo;
   const input = await readInput(jsonArg);
   let cells: CellInput[][];
 
@@ -71,10 +72,18 @@ export async function set(
 
   const messages: string[] = [];
 
-  if (isSingleCellRef) {
-    target.end.row = target.start.row + dataRows - 1;
-    target.end.col = target.start.col + dataCols - 1;
+  target.end.row = target.start.row + dataRows - 1;
+  target.end.col = target.start.col + dataCols - 1;
 
+  if (!isSingleCellRef) {
+    const rowDiff = dataRows - originalRows;
+    const colDiff = dataCols - originalCols;
+    if (rowDiff !== 0 || colDiff !== 0) {
+      messages.push(
+        `Warning: data dimensions (${dataRows}R×${dataCols}C) differ from range (${originalRows}R×${originalCols}C). Adjusted range from ${formatRange(parsed)} to ${formatRange(target)}.`,
+      );
+    }
+  } else {
     const rowDiff = dataRows - originalRows;
     const colDiff = dataCols - originalCols;
     if (rowDiff !== 0 || colDiff !== 0) {
@@ -82,27 +91,13 @@ export async function set(
         `Adjusted range from ${formatRange(parsed)} to ${formatRange(target)} (row diff: ${rowDiff}, col diff: ${colDiff})`,
       );
     }
-  } else {
-    if (dataRows !== originalRows) {
-      throw new Error(
-        `Row count mismatch: range has ${originalRows} rows but got ${dataRows} rows.`,
-      );
-    }
-    for (let r = 0; r < dataRows; r++) {
-      throwIfAborted(signal);
-      if (cells[r].length !== originalCols) {
-        throw new Error(
-          `Column count mismatch in row ${r}: range has ${originalCols} cols but got ${cells[r].length} cols.`,
-        );
-      }
-    }
   }
 
   const { rows, cols } = rangeDimensions(target);
 
   await withFile(
     filePath,
-    ({ file, workbook, GC }) => {
+    ({ file, workbook, GC, markMutated }) => {
       const sheet = target.sheet
         ? workbook.getSheetFromName(target.sheet)
         : workbook.getActiveSheet();
@@ -112,10 +107,11 @@ export async function set(
       }
 
       let written = 0;
-
-      ensureSheetSize(sheet, target.end.row + 1, target.end.col + 1);
+      let copiedRange: string | undefined;
 
       file.batch(() => {
+        ensureSheetSize(sheet, target.end.row + 1, target.end.col + 1);
+
         for (let r = 0; r < rows; r++) {
           throwIfAborted(signal);
           for (let c = 0; c < cols; c++) {
@@ -142,12 +138,184 @@ export async function set(
             }
           }
         }
+
+        if (copyTo) {
+          const copyDst = parseRef(copyTo);
+          const dstSheet = copyDst.sheet
+            ? workbook.getSheetFromName(copyDst.sheet)
+            : sheet;
+          if (!dstSheet) {
+            throw new Error(
+              `Copy-to sheet not found: ${copyDst.sheet ?? "(active)"}`,
+            );
+          }
+
+          const srcRows = rows;
+          const srcCols = cols;
+          const { rows: dstRows, cols: dstCols } = rangeDimensions(copyDst);
+
+          ensureSheetSize(dstSheet, copyDst.end.row + 1, copyDst.end.col + 1);
+
+          const CopyToOptions = GC.Spread.Sheets.CopyToOptions;
+          const SheetArea = GC.Spread.Sheets.SheetArea;
+          const StorageType = GC.Spread.Sheets.StorageType;
+          const needsCrossSheetCopy = sheet !== dstSheet;
+          const sameSheetOverlap =
+            !needsCrossSheetCopy &&
+            target.start.row <= copyDst.end.row &&
+            copyDst.start.row <= target.end.row &&
+            target.start.col <= copyDst.end.col &&
+            copyDst.start.col <= target.end.col;
+          const needsHelper = needsCrossSheetCopy || sameSheetOverlap;
+          const helperIndex = workbook.getSheetCount();
+          const helperSheet = needsHelper
+            ? new GC.Spread.Sheets.Worksheet(
+                `__hsx_copy_to_${Date.now().toString(36)}`,
+              )
+            : null;
+
+          if (helperSheet) {
+            workbook.addSheet(helperIndex, helperSheet);
+            ensureSheetSize(
+              helperSheet,
+              Math.max(target.end.row, copyDst.end.row) + 1,
+              Math.max(target.end.col, copyDst.end.col) + 1,
+            );
+          }
+
+          try {
+            for (let r = 0; r < dstRows; r++) {
+              throwIfAborted(signal);
+              for (let c = 0; c < dstCols; c++) {
+                const sr = target.start.row + (r % srcRows);
+                const sc = target.start.col + (c % srcCols);
+                const dr = copyDst.start.row + r;
+                const dc = copyDst.start.col + c;
+
+                if (dr === sr && dc === sc && sheet === dstSheet) continue;
+
+                if (!helperSheet) {
+                  sheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+                  continue;
+                }
+
+                helperSheet.clear(
+                  sr,
+                  sc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.data,
+                );
+                helperSheet.clear(
+                  sr,
+                  sc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.style,
+                );
+                helperSheet.clear(
+                  dr,
+                  dc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.data,
+                );
+                helperSheet.clear(
+                  dr,
+                  dc,
+                  1,
+                  1,
+                  SheetArea.viewport,
+                  StorageType.style,
+                );
+
+                const formula = sheet.getFormula(sr, sc);
+                if (formula) {
+                  helperSheet.setFormula(sr, sc, formula);
+                } else {
+                  const value = sheet.getValue(sr, sc);
+                  if (value !== null && value !== undefined) {
+                    helperSheet.setValue(sr, sc, value);
+                  }
+                }
+
+                const style = sheet.getStyle(sr, sc);
+                if (style) {
+                  helperSheet.setStyle(sr, sc, style);
+                }
+
+                if (dr !== sr || dc !== sc) {
+                  helperSheet.copyTo(sr, sc, dr, dc, 1, 1, CopyToOptions.all);
+                }
+
+                const adjustedFormula = helperSheet.getFormula(dr, dc);
+                if (adjustedFormula) {
+                  dstSheet.setFormula(dr, dc, adjustedFormula);
+                } else {
+                  const adjustedValue = helperSheet.getValue(dr, dc);
+                  if (adjustedValue !== null && adjustedValue !== undefined) {
+                    dstSheet.setValue(dr, dc, adjustedValue);
+                  } else {
+                    dstSheet.clear(
+                      dr,
+                      dc,
+                      1,
+                      1,
+                      SheetArea.viewport,
+                      StorageType.data,
+                    );
+                  }
+                }
+
+                const adjustedStyle = helperSheet.getStyle(dr, dc);
+                if (adjustedStyle) {
+                  dstSheet.setStyle(dr, dc, adjustedStyle);
+                } else {
+                  dstSheet.clear(
+                    dr,
+                    dc,
+                    1,
+                    1,
+                    SheetArea.viewport,
+                    StorageType.style,
+                  );
+                }
+              }
+            }
+          } finally {
+            if (helperSheet) {
+              workbook.removeSheet(helperIndex);
+            }
+          }
+
+          copiedRange = formatRange(copyDst);
+
+          markMutated({
+            sheet: copyDst.sheet ?? dstSheet.name(),
+            startRow: copyDst.start.row,
+            startCol: copyDst.start.col,
+            endRow: copyDst.end.row,
+            endCol: copyDst.end.col,
+          });
+        }
+      });
+
+      markMutated({
+        sheet: target.sheet ?? sheet.name(),
+        startRow: target.start.row,
+        startCol: target.start.col,
+        endRow: target.end.row,
+        endCol: target.end.col,
       });
 
       ok({
         success: true,
         written,
         range: formatRange(target),
+        ...(copiedRange && { copiedTo: copiedRange }),
         messages,
       });
     },

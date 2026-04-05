@@ -2,6 +2,7 @@ import { parseRef, rangeDimensions } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
+import { ensureSheetSize } from "../sheet-size.js";
 
 export async function copy(
   filePath: string,
@@ -15,7 +16,7 @@ export async function copy(
 
   await withFile(
     filePath,
-    ({ file, workbook }) => {
+    ({ file, workbook, markMutated }) => {
       const srcSheet = src.sheet
         ? workbook.getSheetFromName(src.sheet)
         : workbook.getActiveSheet();
@@ -28,6 +29,12 @@ export async function copy(
 
       const { rows: srcRows, cols: srcCols } = rangeDimensions(src);
       const { rows: dstRows, cols: dstCols } = rangeDimensions(dst);
+
+      ensureSheetSize(
+        dstSheet,
+        dst.start.row + dstRows,
+        dst.start.col + dstCols,
+      );
 
       file.batch(() => {
         for (let r = 0; r < dstRows; r++) {
@@ -54,6 +61,14 @@ export async function copy(
             }
           }
         }
+      });
+
+      markMutated({
+        sheet: dst.sheet ?? dstSheet.name(),
+        startRow: dst.start.row,
+        startCol: dst.start.col,
+        endRow: dst.start.row + dstRows - 1,
+        endCol: dst.start.col + dstCols - 1,
       });
 
       ok({
