@@ -2,9 +2,27 @@
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-04-05
+
+### Features
+
+- **Hooks** — Extensible hook system for CLI and SDK consumers. Hook files export a default function receiving a `HookAPI` instance with `on()` for `preCommand`, `postCommand`, `onOpen`, `preSave`, `postSave` events. Auto-discovered from `.headless-spreadjs/hooks/` (local or global). Disable with `--no-hooks` or `HEADLESS_SPREADJS_NO_HOOKS` env var.
+- **CLI:** `hsx watch` — Live file-watching UI for spreadsheet changes.
+- **CLI:** `set` now supports drag-and-fill for series expansion.
+- **CLI:** `set`, `clear`, `copy` now track mutated ranges for fine-grained hook callbacks.
+- **CLI:** `copy` with `--copy-to` uses a helper sheet when source/dest overlap on the same sheet, preventing write-before-read smearing.
+- Example hooks: `financial-colors`, `hardcode-lint`, `no-gridlines`.
+
+### Fixed
+
+- **CLI:** Cache invalidation for read-only paths when `onOpen` hooks ran, preventing hook side-effects from leaking into subsequent requests.
+- **CLI:** `--no-hooks` flag now propagates into isolated daemon eval child processes.
+- **CLI:** Cross-sheet `--copy-to` now clears destination data/style when source is blank.
+
 ### Docs
 
 - Updated `skills/spreadjs/SKILL.md` with modern Excel / dynamic-array formula guidance for `hsx` workflows.
+- Updated `README.md` with hook system documentation.
 
 ## [0.0.8] - 2026-03-13
 
