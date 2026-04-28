@@ -75,8 +75,9 @@ hsx set file.xlsx "B5:B6" '[
 ```
 
 `style` (SpreadJS-style):
+
 - `fontStyle`: `{ bold?: boolean, italic?: boolean, underline?: boolean }`
-- `fontSize`: CSS size string (e.g. `"12px"`)
+- `fontSize`: Excel point size string (e.g. `"11pt"`, `"12pt"`)
 - `fontFamily`
 - `foreColor`
 - `backColor`
@@ -89,6 +90,8 @@ hsx set file.xlsx "B5:B6" '[
   - `style` values: `"thin"`, `"medium"`, `"dashed"`, `"dotted"`, `"thick"`, `"double"`, `"hair"`, `"mediumDashed"`, `"dashDot"`, `"mediumDashDot"`, `"dashDotDot"`, `"mediumDashDotDot"`, `"slantedDashDot"`
 
 Always set `formatter` inline in the style — don't use `eval` just to format cells.
+
+Font size unit: always use Excel points (`"11pt"`, `"12pt"`, …). CSS pixel values like `"11px"` are rejected — they export as much smaller sizes (`"11px"` = ~8.25pt) and silently make sheets unreadable. For greenfield workbooks, use `"11pt"` body / `"12pt"` section headers / `"14–16pt"` titles; in existing workbooks, follow neighbouring conventions.
 
 ## Read
 
@@ -258,30 +261,6 @@ The file is at `./spreadjs.d.ts`. Use `grep -n` to find what you need, then `rea
 - Use `hsx deps` / `hsx refs` for repeatable lineage checks; use `eval` for custom one-offs
 - Prefer uniform column widths; use empty columns for indentation
 - Always specify units in headers: `Revenue ($mm)`, `Growth (%)`
-
-## Modern Excel Formula Guidelines (365/2022+)
-
-Prefer dynamic arrays & spill formulas over helper columns and copy-down formulas.
-
-| Instead of... | Use... |
-|---|---|
-| INDEX/MATCH | XLOOKUP or XMATCH |
-| MOD + MATCH wrapping logic | VSTACK + DROP + TAKE to rearrange arrays |
-| Copying formulas down rows | A single spill formula (FILTER, SORT, UNIQUE, SEQUENCE) |
-| Nested IF chains | IFS, SWITCH, or FILTER |
-| Helper columns for intermediate values | LET to name intermediate steps |
-| IFERROR(VLOOKUP(...)) | XLOOKUP (has built-in if_not_found arg) |
-| SUMPRODUCT hacks for conditional logic | FILTER + SUM, or BYROW/BYCOL |
-| VBA / repeated formulas for transforms | MAP, REDUCE, LAMBDA |
-| Manual array reshaping | WRAPCOLS, WRAPROWS, TOCOL, TOROW |
-| CONCATENATE or `&` in loops | TEXTJOIN or TEXTSPLIT |
-| INDEX(range, MATCH(...), MATCH(...)) | CHOOSECOLS / CHOOSEROWS |
-
-Rules:
-
-- Always use LET when a sub-expression appears more than once.
-- Prefer one spilling formula over N copied formulas.
-- Use LAMBDA + names for reusable logic instead of complex nested formulas.
-- Use VSTACK/HSTACK to combine arrays instead of building results cell-by-cell.
-
-Your formulas must be human-readable.
+- Don't shrink fonts to fit layout. Native Excel defaults are ~11pt (Aptos), 20px row height, 62px column width. If content is too wide, adjust column widths or wrap text — don't drop fonts below 11pt. Use ~11pt body, 12pt section headers, and 14–16pt titles.
+- Keep colors plain & professional unless requested otherwise.
+- Excel is a presentational format. Use vision to ensure the workbook is visually sound.

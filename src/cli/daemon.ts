@@ -1,10 +1,7 @@
-import { spawn } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
-import { createRequire } from "node:module";
 import { connect, createServer, type Socket } from "node:net";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { runWithHooksDisabled, setHookWriters } from "../hooks.js";
 import { dispose as disposeRuntime, init } from "../index.js";
 import { registerSignalTimeout, throwIfAborted } from "./abort.js";
@@ -88,110 +85,6 @@ type DaemonRequest = {
   noHooks?: boolean;
 };
 type DaemonResponse = { stdout: string; stderr: string; exitCode: number };
-
-function getCliSpawnSpec(): { command: string; args: string[] } {
-  const thisFile = fileURLToPath(import.meta.url);
-  const dir = dirname(thisFile);
-
-  if (thisFile.endsWith(".ts")) {
-    const require = createRequire(import.meta.url);
-    const tsxCli = require.resolve("tsx/cli");
-    return {
-      command: process.execPath,
-      args: [tsxCli, join(dir, "index.ts")],
-    };
-  }
-
-  return {
-    command: process.execPath,
-    args: [join(dir, "index.js")],
-  };
-}
-
-async function runIsolatedCli(
-  request: DaemonRequest,
-  signal: AbortSignal,
-): Promise<DaemonResponse> {
-  return new Promise((resolve, reject) => {
-    const spawnSpec = getCliSpawnSpec();
-    const globalFlags = ["--no-daemon"];
-    if (request.noHooks) globalFlags.push("--no-hooks");
-    const child = spawn(
-      spawnSpec.command,
-      [...spawnSpec.args, ...globalFlags, ...request.argv],
-      {
-        cwd: request.cwd,
-        env: { ...process.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let killTimer: ReturnType<typeof setTimeout> | null = null;
-    let aborted = false;
-
-    const cleanup = () => {
-      if (killTimer) clearTimeout(killTimer);
-      signal.removeEventListener("abort", onAbort);
-    };
-
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      fn();
-    };
-
-    const onAbort = () => {
-      aborted = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => {
-        child.kill("SIGKILL");
-      }, 250);
-    };
-
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (err) => {
-      finish(() => reject(err));
-    });
-
-    child.on("exit", (code, sig) => {
-      finish(() => {
-        if (aborted) {
-          reject(
-            signal.reason instanceof Error
-              ? signal.reason
-              : new Error(
-                  `Eval aborted${sig ? ` (${sig})` : code !== null ? ` (exit ${code})` : ""}`,
-                ),
-          );
-          return;
-        }
-        resolve({ stdout, stderr, exitCode: code ?? 1 });
-      });
-    });
-
-    if (request.stdin !== undefined) {
-      child.stdin.end(request.stdin);
-    } else {
-      child.stdin.end();
-    }
-  });
-}
 
 export async function startDaemon(): Promise<void> {
   const socketPath = getSocketPath();
@@ -421,18 +314,6 @@ export async function startDaemon(): Promise<void> {
             stderr: "",
             exitCode: 0,
           };
-        }
-
-        if (request.argv[0] === "eval") {
-          if (fileCache.dirtyCount > 0) {
-            await fileCache.flushDirty();
-          }
-          const response = await runIsolatedCli(request, signal);
-          const evalFile = request.argv[1];
-          if (evalFile) {
-            fileCache.invalidate(evalFile, request.cwd);
-          }
-          return response;
         }
 
         const runtime = {

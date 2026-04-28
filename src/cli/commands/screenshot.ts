@@ -201,11 +201,11 @@ export async function screenshot(
       });
 
       await page.goto(`http://127.0.0.1:${port}`, {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
       });
 
       // Wait for SpreadJS to finish loading the xlsx
-      await page.waitForFunction("window.__ready", { timeout: 15_000 });
+      await page.waitForFunction("window.__ready", { timeout: 30_000 });
 
       // Check for load errors
       const loadError = await page.evaluate("window.__error");

@@ -368,38 +368,6 @@ describe("daemon", () => {
 		assert.ok(elapsedMs < 5_000);
 	});
 
-	it("cpu-bound eval timeout does not poison the daemon", async () => {
-		const file = path.join(tmpDir, "timeout-cpu-bound.xlsx");
-		await sendCommand(socketPath, ["create", file], tmpDir);
-
-		const longRequest = sendCommand(
-			socketPath,
-			[
-				"eval",
-				file,
-				"const started = Date.now(); while (Date.now() - started < 10000) {} return 1;",
-			],
-			tmpDir,
-			undefined,
-			200,
-		);
-
-		await new Promise((r) => setTimeout(r, 50));
-		const startedAt = Date.now();
-		const statusRequest = sendCommand(socketPath, ["daemon", "status"], tmpDir);
-
-		const [longRes, statusRes] = await Promise.all([
-			longRequest,
-			statusRequest,
-		]);
-		const elapsedMs = Date.now() - startedAt;
-
-		assert.equal(longRes.exitCode, 1);
-		assert.ok(longRes.stderr.includes("timed out"));
-		assert.equal(statusRes.exitCode, 0);
-		assert.ok(elapsedMs < 5_000);
-	});
-
 	it("client disconnect aborts in-flight request", async () => {
 		const file = path.join(tmpDir, "disconnect-abort.xlsx");
 		await sendCommand(socketPath, ["create", file], tmpDir);

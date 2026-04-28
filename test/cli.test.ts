@@ -440,6 +440,62 @@ describe("cli", () => {
     assert.equal(data.cells.D1.style.backColor.toLowerCase(), "#ff0000");
   });
 
+  it("writes pt fontSize to Excel as points and rejects px input", async () => {
+    const fontFile = path.join(tmpDir, "font-size.xlsx");
+    await hsx(["create", fontFile]);
+    await hsx([
+      "set",
+      fontFile,
+      "A1:B1",
+      JSON.stringify([
+        [
+          { value: "Body", style: { fontSize: "11pt", fontFamily: "Aptos" } },
+          {
+            value: "Header",
+            style: {
+              fontSize: "12pt",
+              fontFamily: "Aptos",
+              fontStyle: { bold: true },
+            },
+          },
+        ],
+      ]),
+    ]);
+
+    const { stdout } = await hsx(["get", fontFile, "A1:B1"]);
+    const data = JSON.parse(stdout);
+    assert.equal(data.cells.A1.style.fontSize, undefined); // 11pt default
+    assert.equal(data.cells.B1.style.fontSize, "12pt");
+
+    await hsx(["daemon", "flush"]);
+
+    const { unzipSync, strFromU8 } = await import("fflate");
+    const zip = unzipSync(new Uint8Array(await fs.readFile(fontFile)));
+    const stylesXml = strFromU8(zip["xl/styles.xml"]);
+    const sizes = [...stylesXml.matchAll(/<sz val="([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    assert.ok(sizes.includes("11"));
+    assert.ok(sizes.includes("12"));
+    assert.ok(!sizes.includes("8.25"));
+    assert.ok(!sizes.includes("9"));
+
+    let pxError: (Error & { stderr?: string }) | undefined;
+    try {
+      await hsx([
+        "set",
+        fontFile,
+        "A2",
+        JSON.stringify([[{ value: "Bad", style: { fontSize: "11px" } }]]),
+      ]);
+    } catch (err) {
+      pxError = err as Error & { stderr?: string };
+    }
+    assert.ok(pxError, "px fontSize should fail the set command");
+    assert.match(pxError.stderr ?? "", /fontSize/);
+    assert.match(pxError.stderr ?? "", /points/);
+  });
+
   it("set auto-expands single-cell refs to input shape", async () => {
     const cells = [[{ value: "r1" }], [{ value: "r2" }]];
     const { stdout } = await hsx([

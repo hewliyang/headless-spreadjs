@@ -52,11 +52,61 @@ const LINE_STYLE_NAMES: Record<number, string> = {
   13: "slantedDashDot",
 };
 
-// Default values to suppress from serialization
-const DEFAULT_FONT_SIZE = 14.6667; // SpreadJS default ~11pt
+const DEFAULT_FONT_SIZE_PT = 11;
 const DEFAULT_FONT_FAMILIES = new Set(["calibri", "arial"]);
 const DEFAULT_FORMATTERS = new Set(["general", "General"]);
 const DEFAULT_FORE_COLORS = new Set(["Text 1 0", "windowtext", "#000000"]);
+
+function formatPointSize(size: number): string {
+  return Number.isInteger(size)
+    ? String(size)
+    : String(Number(size.toFixed(2)));
+}
+
+function fontSizeToPoints(fontSize: string): number | null {
+  const match = fontSize.trim().match(/^(\d+(?:\.\d+)?)(px|pt)?$/i);
+  if (!match) return null;
+
+  const size = Number(match[1]);
+  if (!Number.isFinite(size)) return null;
+
+  const unit = (match[2] || "pt").toLowerCase();
+  if (unit === "pt") return size;
+  if (unit === "px") return size * 0.75;
+  return null;
+}
+
+function serializeFontSize(fontSize: string): string | null {
+  const points = fontSizeToPoints(fontSize);
+  if (points === null) return fontSize;
+  return `${formatPointSize(points)}pt`;
+}
+
+function normalizeInputFontSize(fontSize: string): string {
+  const raw = fontSize.trim();
+  const match = raw.match(/^(\d+(?:\.\d+)?)(px|pt)?$/i);
+  if (!match) {
+    throw new Error(
+      `Invalid fontSize "${fontSize}". Use a point size like "11pt" or "12pt".`,
+    );
+  }
+
+  const size = Number(match[1]);
+  if (!Number.isFinite(size) || size <= 0) {
+    throw new Error(
+      `Invalid fontSize "${fontSize}". Use a positive point size like "11pt".`,
+    );
+  }
+
+  const unit = (match[2] || "pt").toLowerCase();
+  if (unit === "px") {
+    throw new Error(
+      `fontSize "${fontSize}" uses CSS pixels. Excel displays font sizes in points — use e.g. "${formatPointSize(size)}pt" instead. (CSS px would export as ~${formatPointSize(size * 0.75)}pt, much smaller than intended.)`,
+    );
+  }
+
+  return `${formatPointSize(size)}pt`;
+}
 
 function normalizeFontStyle(style: SpreadStyle): FontStyleObject | undefined {
   const result: FontStyleObject = {};
@@ -105,9 +155,9 @@ export function serializeStyle(style: SpreadStyle): CellStyle | null {
   }
 
   if (style.fontSize) {
-    const size = parseFloat(style.fontSize);
-    if (Number.isFinite(size) && Math.abs(size - DEFAULT_FONT_SIZE) > 0.5) {
-      result.fontSize = style.fontSize;
+    const sizePt = fontSizeToPoints(style.fontSize);
+    if (sizePt === null || Math.abs(sizePt - DEFAULT_FONT_SIZE_PT) > 0.25) {
+      result.fontSize = serializeFontSize(style.fontSize) ?? style.fontSize;
       hasAny = true;
     }
   }
@@ -228,7 +278,7 @@ export function applyStyles(
   }
 
   if (styles.fontSize !== undefined) {
-    style.fontSize = styles.fontSize;
+    style.fontSize = normalizeInputFontSize(styles.fontSize);
   }
 
   if (styles.fontFamily !== undefined) {
