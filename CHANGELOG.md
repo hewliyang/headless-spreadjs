@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.0.10] - 2026-04-28
+
+### Performance
+
+- **CLI:** `hsx screenshot` no longer waits on Playwright's `networkidle` heuristic, which used to stall on jsdelivr CDN keep-alive sockets it never observed go idle. Cold screenshot latency dropped from 30s+ (often timing out at the daemon default) to ~3.7s; warm screenshot ~1.6s. The viewer now resolves on `domcontentloaded` + an explicit `__ready` flag set after `fromJSON` completes.
+- **CLI:** `hsx eval` now runs in the daemon's main process instead of spawning a fresh node subprocess per call. Warm latency drops from ~0.95s to ~0.17s — same as `set`/`get`. The workbook also stays cached for follow-up commands, so the next `get`/`screenshot`/etc. no longer has to re-open from disk. End-to-end "big write + 3 screenshots": 32.9s -> 8.1s.
+
+### Changed
+
+- **BREAKING (CLI):** `style.fontSize` must be a point size string (`"11pt"`, `"12pt"`, …). CSS pixel values like `"11px"` are now rejected with an actionable error — they previously round-tripped to ~8.25pt in Excel and silently shrank sheets.
+- **CLI:** A synchronous busy-loop inside `hsx eval` now blocks the daemon's event loop until it exits (abort signals only fire at await points). Users who need hard subprocess isolation can pass `--no-daemon`.
+
+### Docs
+
+- `skills/spreadjs/SKILL.md`: fontSize must be in points; added presentation guidelines (no shrinking fonts to fit, plain colors, vision-check the rendered workbook); dropped the modern-formula appendix.
+
 ## [0.0.9] - 2026-04-05
 
 ### Features
