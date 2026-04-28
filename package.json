@@ -1,6 +1,6 @@
 {
   "name": "@hewliyang/headless-spreadjs",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Headless Excel workbook engine for Node.js — powered by SpreadJS with DOM shims. No browser, no Excel, any platform.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
