@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-04-29
+
+### Fixed
+
+- **CLI:** `hsx screenshot` now loads the SpreadJS shape, chart, and slicer browser add-ons before opening workbooks, so those objects are preserved instead of being dropped during deserialization.
+
+### Changed
+
+- **CLI:** `hsx screenshot` now caches pinned SpreadJS browser bundles under `$HEADLESS_SPREADJS_SJS_DIR` or `~/.headless-spreadjs/sjs-<version>/` and serves them locally. Cached assets are SHA-384 verified before use and re-fetched on mismatch, so warm screenshots work without CDN access.
+
 ## [0.0.10] - 2026-04-28
 
 ### Performance

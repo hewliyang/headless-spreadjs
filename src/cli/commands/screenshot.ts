@@ -1,21 +1,23 @@
 import http from "node:http";
 import path from "node:path";
+import type { SpreadWorkbook } from "../../types.js";
 import { parseRef, rangeDimensions } from "../a1.js";
 import { throwIfAborted } from "../abort.js";
 import { withFile } from "../context.js";
 import { fail, ok } from "../output.js";
+import {
+  assetPath,
+  assetSri,
+  type BrowserScriptKey,
+  browserScriptKeys,
+  loadBrowserAssets,
+  type ServedAsset,
+  SJS_ASSET_PREFIX,
+} from "../screenshot-assets.js";
 
-/**
- * CDN URLs for SpreadJS (trial/eval, browser-only rendering).
- * Uses the older @grapecity packages which work in eval mode with fromJSON.
- */
-const CDN = {
-  css: "https://cdn.jsdelivr.net/npm/@grapecity/spread-sheets/styles/gc.spread.sheets.excel2013white.min.css",
-  sheets:
-    "https://cdn.jsdelivr.net/npm/@grapecity/spread-sheets/dist/gc.spread.sheets.all.min.js",
-  excelio:
-    "https://cdn.jsdelivr.net/npm/@grapecity/spread-excelio/dist/gc.spread.excelio.min.js",
-};
+const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
+const RANGE_PADDING_PX = 50;
+const RENDER_SETTLE_MS = 300;
 
 interface ScreenshotOptions {
   ref?: string;
@@ -23,91 +25,211 @@ interface ScreenshotOptions {
   signal?: AbortSignal | null;
 }
 
-function buildViewerHTML(): string {
+function hasPivot(workbook: SpreadWorkbook): boolean {
+  for (let i = 0; i < workbook.getSheetCount(); i++) {
+    if (workbook.getSheet(i).pivotTables.all().length > 0) return true;
+  }
+  return false;
+}
+
+function scriptTag(key: BrowserScriptKey): string {
+  return `<script src="${assetPath(key)}" integrity="${assetSri(key)}" crossorigin="anonymous"></script>`;
+}
+
+function buildViewerHTML(scriptKeys: BrowserScriptKey[]): string {
+  const scripts = scriptKeys.map(scriptTag).join("\n");
+
   return `<!DOCTYPE html>
 <html><head>
-<link rel="stylesheet" href="${CDN.css}">
+<link rel="stylesheet" href="${assetPath("css")}" integrity="${assetSri("css")}" crossorigin="anonymous">
 <style>
   body { margin: 0; padding: 0; background: white; }
   #ss { width: 100%; height: 100vh; }
 </style>
-</head><body>
-<div id="ss"></div>
-<script src="${CDN.sheets}"></script>
-<script src="${CDN.excelio}"></script>
 <script>
-(function(){
-  var orig = CanvasRenderingContext2D.prototype.fillText;
-  CanvasRenderingContext2D.prototype.fillText = function(text) {
-    if (text && typeof text === 'string' && (
-      text.includes('GrapeCity') || text.includes('MESCIUS') ||
-      text.includes('EVALUATION') || text.includes('Powered') ||
-      text.includes('deployment') || text.includes('grapecity.com') ||
-      text.includes('mescius.com') || text.includes('Email us') ||
-      text === 'Evaluation Version'
-    )) return;
-    return orig.apply(this, arguments);
-  };
-})();
-
-var spread = new GC.Spread.Sheets.Workbook(document.getElementById('ss'));
-
-fetch('/file.xlsx?t=' + Date.now()).then(function(r){ return r.blob(); }).then(function(blob){
-  var io = new GC.Spread.Excel.IO();
-  io.open(blob, function(json){
-    if (json.sheets) {
-      Object.values(json.sheets).forEach(function(s) {
-        s.rowCount  = Math.max(s.rowCount  || 0, 500);
-        s.columnCount = Math.max(s.columnCount || 0, 100);
-      });
-    }
-    spread.fromJSON(json);
-    spread.refresh();
-    window.__spread = spread;
-    window.__ready  = true;
-  }, function(err){
-    window.__error = String(err);
-    window.__ready = true;
-  });
+window.__ready = false;
+window.__error = null;
+function __screenshotErrorText(err) {
+  if (!err) return "unknown error";
+  if (typeof err === "string") return err;
+  if (err.message) return err.message;
+  try { return JSON.stringify(err); } catch (_) { return String(err); }
+}
+function __markScreenshotError(err) {
+  window.__error = __screenshotErrorText(err);
+  window.__ready = true;
+}
+window.addEventListener("error", function(event) {
+  __markScreenshotError(event.error || event.message);
+});
+window.addEventListener("unhandledrejection", function(event) {
+  __markScreenshotError(event.reason);
 });
 </script>
+</head><body>
+<div id="ss"></div>
+${scripts}
+<script>
+(function(){
+  try {
+    if (!window.GC || !GC.Spread || !GC.Spread.Sheets || !GC.Spread.Excel) {
+      throw new Error("SpreadJS browser bundles did not load");
+    }
+
+    if (window.CanvasRenderingContext2D) {
+      var orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function(text) {
+        if (text && typeof text === 'string' && (
+          text.includes('GrapeCity') || text.includes('MESCIUS') ||
+          text.includes('EVALUATION') || text.includes('Powered') ||
+          text.includes('deployment') || text.includes('grapecity.com') ||
+          text.includes('mescius.com') || text.includes('Email us') ||
+          text === 'Evaluation Version'
+        )) return;
+        return orig.apply(this, arguments);
+      };
+    }
+
+    var spread = new GC.Spread.Sheets.Workbook(document.getElementById('ss'));
+
+    fetch('/file.xlsx?t=' + Date.now())
+      .then(function(r) {
+        if (!r.ok) throw new Error('failed to load workbook: HTTP ' + r.status);
+        return r.blob();
+      })
+      .then(function(blob) {
+        var io = new GC.Spread.Excel.IO();
+        io.open(blob, function(json) {
+          try {
+            if (json.sheets) {
+              Object.values(json.sheets).forEach(function(s) {
+                s.rowCount = Math.max(s.rowCount || 0, 500);
+                s.columnCount = Math.max(s.columnCount || 0, 100);
+              });
+            }
+            spread.fromJSON(json);
+            spread.refresh();
+            window.__spread = spread;
+            window.__ready = true;
+          } catch (err) {
+            __markScreenshotError(err);
+          }
+        }, __markScreenshotError);
+      })
+      .catch(__markScreenshotError);
+  } catch (err) {
+    __markScreenshotError(err);
+  }
+})();
+</script>
 </body></html>`;
+}
+
+function requestPath(req: http.IncomingMessage): string {
+  try {
+    return new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+  } catch {
+    return "/";
+  }
+}
+
+function assetNameFromPath(pathname: string): string | null {
+  if (!pathname.startsWith(SJS_ASSET_PREFIX)) return null;
+
+  let name: string;
+  try {
+    name = decodeURIComponent(pathname.slice(SJS_ASSET_PREFIX.length));
+  } catch {
+    return null;
+  }
+
+  return name && !name.includes("/") && !name.includes("\\") ? name : null;
 }
 
 function startServer(
   html: string,
   xlsxBuf: Buffer,
+  assets: Map<string, ServedAsset>,
 ): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      if (req.url === "/" || req.url === "/index.html") {
-        res.writeHead(200, { "Content-Type": "text/html" });
+      const pathname = requestPath(req);
+      const assetName = assetNameFromPath(pathname);
+
+      if (pathname === "/" || pathname === "/index.html") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);
-      } else if (req.url?.startsWith("/file.xlsx")) {
+        return;
+      }
+
+      if (pathname === "/file.xlsx") {
         res.writeHead(200, {
           "Content-Type": "application/octet-stream",
           "Cache-Control": "no-cache",
         });
         res.end(xlsxBuf);
-      } else {
-        res.writeHead(404);
-        res.end();
+        return;
       }
+
+      if (assetName) {
+        const asset = assets.get(assetName);
+        if (asset) {
+          res.writeHead(200, {
+            "Content-Type": asset.contentType,
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(asset.buffer);
+          return;
+        }
+      }
+
+      res.writeHead(404);
+      res.end();
     });
-    server.on("error", reject);
+
+    const onError = (err: Error) => reject(err);
+    server.once("error", onError);
     server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
       const addr = server.address();
-      if (!addr || typeof addr === "string")
-        return reject(new Error("bind failed"));
+      if (!addr || typeof addr === "string") {
+        reject(new Error("bind failed"));
+        return;
+      }
       resolve({ server, port: addr.port });
     });
   });
 }
 
-/**
- * Browser-side script that navigates to a range and returns its pixel rect.
- * Injected via page.evaluate() as a string to avoid DOM type issues.
- */
+async function closeServer(server: http.Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+const CALC_RANGE_SIZE_SCRIPT = `(opts) => {
+  const spread = window.__spread;
+  if (!spread) return null;
+  if (opts.sheetName) {
+    const idx = spread.getSheetIndex(opts.sheetName);
+    if (idx === -1) return null;
+    spread.setActiveSheetIndex(idx);
+  }
+  const sheet = spread.getActiveSheet();
+  let w = 0, h = 0;
+  for (let c = opts.startCol; c < opts.startCol + opts.cols; c++) {
+    w += sheet.getColumnWidth(c);
+  }
+  for (let r = opts.startRow; r < opts.startRow + opts.rows; r++) {
+    h += sheet.getRowHeight(r);
+  }
+  const rhw = sheet.options.rowHeaderVisible !== false
+    ? sheet.getColumnWidth(0, GC.Spread.Sheets.SheetArea.rowHeader) : 0;
+  const chh = sheet.options.colHeaderVisible !== false
+    ? sheet.getRowHeight(0, GC.Spread.Sheets.SheetArea.colHeader) : 0;
+  return { width: Math.ceil(w + rhw), height: Math.ceil(h + chh) };
+}`;
+
 const CLIP_RANGE_SCRIPT = `(opts) => {
   const spread = window.__spread;
   if (!spread) return null;
@@ -132,9 +254,9 @@ const CLIP_RANGE_SCRIPT = `(opts) => {
 
   if (!first || first.x == null || !last || last.x == null) return null;
 
-  var rhw = sheet.options.rowHeaderVisible !== false
+  const rhw = sheet.options.rowHeaderVisible !== false
     ? sheet.getColumnWidth(0, GC.Spread.Sheets.SheetArea.rowHeader) : 0;
-  var chh = sheet.options.colHeaderVisible !== false
+  const chh = sheet.options.colHeaderVisible !== false
     ? sheet.getRowHeight(0, GC.Spread.Sheets.SheetArea.colHeader) : 0;
 
   const x = first.x + hostRect.left - rhw;
@@ -155,25 +277,24 @@ export async function screenshot(
   options: ScreenshotOptions,
 ): Promise<void> {
   const signal = options.signal;
-
-  // Resolve output path
   const outPath = options.out
     ? path.resolve(options.out)
     : path.resolve(`${path.basename(filePath, path.extname(filePath))}.png`);
 
-  // Get xlsx buffer from the headless engine
-  const xlsxBuf = await withFile(
+  const { xlsxBuf, loadPivot } = await withFile(
     filePath,
     async ({ file }) => {
       throwIfAborted(signal);
-      return file.saveToBuffer();
+      return {
+        xlsxBuf: await file.saveToBuffer(),
+        loadPivot: hasPivot(file.workbook),
+      };
     },
     { signal },
   );
 
   throwIfAborted(signal);
 
-  // Import playwright lazily (optional dependency)
   let chromium: typeof import("playwright")["chromium"];
   try {
     const pw = await import("playwright");
@@ -184,90 +305,64 @@ export async function screenshot(
     );
   }
 
-  // Parse range ref (if given)
   const rangeRef = options.ref ? parseRef(options.ref) : null;
+  const scriptKeys = browserScriptKeys(loadPivot);
+  const assetMap = await loadBrowserAssets(["css", ...scriptKeys], signal);
+  throwIfAborted(signal);
 
-  // Start local HTTP server
-  const html = buildViewerHTML();
-  const { server, port } = await startServer(html, xlsxBuf);
+  const html = buildViewerHTML(scriptKeys);
+  const { server, port } = await startServer(html, xlsxBuf, assetMap);
 
   try {
     throwIfAborted(signal);
     const browser = await chromium.launch();
     try {
-      // Start with a default viewport; we may resize later for large ranges
-      const page = await browser.newPage({
-        viewport: { width: 1280, height: 800 },
-      });
+      const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT });
 
       await page.goto(`http://127.0.0.1:${port}`, {
         waitUntil: "domcontentloaded",
       });
-
-      // Wait for SpreadJS to finish loading the xlsx
       await page.waitForFunction("window.__ready", { timeout: 30_000 });
 
-      // Check for load errors
       const loadError = await page.evaluate("window.__error");
       if (loadError) fail(`SpreadJS IO error: ${loadError}`);
 
       if (rangeRef) {
         const { rows, cols } = rangeDimensions(rangeRef);
-
-        // Compute the pixel size the range needs so we can resize the viewport
-        const CALC_SIZE_SCRIPT = `(opts) => {
-          const spread = window.__spread;
-          if (!spread) return null;
-          if (opts.sheetName) {
-            const idx = spread.getSheetIndex(opts.sheetName);
-            if (idx === -1) return null;
-            spread.setActiveSheetIndex(idx);
-          }
-          const sheet = spread.getActiveSheet();
-          let w = 0, h = 0;
-          for (let c = opts.startCol; c < opts.startCol + opts.cols; c++) {
-            w += sheet.getColumnWidth(c);
-          }
-          for (let r = opts.startRow; r < opts.startRow + opts.rows; r++) {
-            h += sheet.getRowHeight(r);
-          }
-          // Add space for row/column headers if visible
-          const rhw = sheet.options.rowHeaderVisible !== false ? sheet.getColumnWidth(0, GC.Spread.Sheets.SheetArea.rowHeader) : 0;
-          const chh = sheet.options.colHeaderVisible !== false ? sheet.getRowHeight(0, GC.Spread.Sheets.SheetArea.colHeader) : 0;
-          return { width: Math.ceil(w + rhw), height: Math.ceil(h + chh) };
-        }`;
-
-        const calcFn = new Function(`return (${CALC_SIZE_SCRIPT})`)();
-        const rangeSize = (await page.evaluate(calcFn as never, {
+        const rangeOptions = {
           sheetName: rangeRef.sheet,
           startRow: rangeRef.start.row,
           startCol: rangeRef.start.col,
           rows,
           cols,
-        })) as { width: number; height: number } | null;
+        };
 
-        // Resize viewport if the range needs more space (with some padding)
+        const calcFn = new Function(`return (${CALC_RANGE_SIZE_SCRIPT})`)();
+        const rangeSize = (await page.evaluate(
+          calcFn as never,
+          rangeOptions,
+        )) as { width: number; height: number } | null;
+
         if (rangeSize) {
-          const needW = rangeSize.width + 50;
-          const needH = rangeSize.height + 50;
-          if (needW > 1280 || needH > 800) {
+          const needW = rangeSize.width + RANGE_PADDING_PX;
+          const needH = rangeSize.height + RANGE_PADDING_PX;
+          if (
+            needW > DEFAULT_VIEWPORT.width ||
+            needH > DEFAULT_VIEWPORT.height
+          ) {
             await page.setViewportSize({
-              width: Math.max(1280, needW),
-              height: Math.max(800, needH),
+              width: Math.max(DEFAULT_VIEWPORT.width, needW),
+              height: Math.max(DEFAULT_VIEWPORT.height, needH),
             });
             await page.waitForTimeout(200);
           }
         }
 
-        // Navigate to range and get clip rect
         const clipFn = new Function(`return (${CLIP_RANGE_SCRIPT})`)();
-        const clipRect = (await page.evaluate(clipFn as never, {
-          sheetName: rangeRef.sheet,
-          startRow: rangeRef.start.row,
-          startCol: rangeRef.start.col,
-          rows,
-          cols,
-        })) as {
+        const clipRect = (await page.evaluate(
+          clipFn as never,
+          rangeOptions,
+        )) as {
           x: number;
           y: number;
           width: number;
@@ -275,11 +370,8 @@ export async function screenshot(
           error?: string;
         } | null;
 
-        if (clipRect && "error" in clipRect && clipRect.error) {
-          fail(clipRect.error);
-        }
-
-        await page.waitForTimeout(300);
+        if (clipRect?.error) fail(clipRect.error);
+        await page.waitForTimeout(RENDER_SETTLE_MS);
 
         if (clipRect && clipRect.width > 0 && clipRect.height > 0) {
           await page.screenshot({ path: outPath, clip: clipRect });
@@ -287,14 +379,14 @@ export async function screenshot(
           await page.locator("#ss").screenshot({ path: outPath });
         }
       } else {
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(RENDER_SETTLE_MS);
         await page.locator("#ss").screenshot({ path: outPath });
       }
     } finally {
       await browser.close();
     }
   } finally {
-    server.close();
+    await closeServer(server);
   }
 
   ok({ file: outPath });

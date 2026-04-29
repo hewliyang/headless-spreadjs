@@ -116,7 +116,7 @@ hsx screenshot file.xlsx "Sheet1!A1:F20"
 hsx screenshot file.xlsx "Summary!A1:H30" -o summary.png
 ```
 
-Screenshots render the full workbook (default) or a specific range to PNG.
+Screenshots render the full workbook (default) or a specific range to PNG. Pivot table screenshots have limited visual fidelity.
 
 ## Search
 
